@@ -1,0 +1,71 @@
+# Ansible .gitignore
+# Corporate Standard - H1 Corporation
+
+# Ansible retry files
+*.retry
+
+# Logs
+logs/
+*.log
+
+# Facts cache
+facts_cache/
+
+# Vault password files
+.vault_pass
+.vault_password
+vault_pass.txt
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Credentials and secrets
+*_credentials.yml
+*_secrets.yml
+credentials/
+secrets/
+
+# Temporary files
+*.tmp
+*.temp
+.tmp/
+tmp/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+ENV/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Output files
+output/
+results/
+
+# Collections
+collections/
+
+# Test files
+test_output/
+.pytest_cache/
+
+# Ansible Galaxy
+.galaxy_install_info

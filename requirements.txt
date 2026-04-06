@@ -1,0 +1,26 @@
+# Python Requirements for Ansible API Management Automation
+# Corporate Standard - H1 Corporation
+# Version: 1.0.0
+
+# Core Ansible
+ansible>=2.9.0,<3.0.0
+
+# HTTP/API Libraries
+requests>=2.25.0
+urllib3>=1.26.0
+
+# JSON/YAML Processing
+PyYAML>=5.4.0
+jinja2>=2.11.0
+
+# Cryptography (for vault and secure connections)
+cryptography>=3.4.0
+
+# Additional utilities
+python-dateutil>=2.8.0
+six>=1.15.0
+
+# Optional: For enhanced features
+# netaddr>=0.8.0
+# dnspython>=2.1.0
+# pywinrm>=0.4.0  # For Windows remote management

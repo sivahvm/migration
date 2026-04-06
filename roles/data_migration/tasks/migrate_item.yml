@@ -1,0 +1,97 @@
+---
+# Data Migration - Migrate Individual Item
+# Corporate Standard - Item Migration with Debug Statements
+
+- name: "Migrate Item | Debug - Current item info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Migrating Item #{{ migration_index + 1 }}"
+      - "Type: {{ migration_type | default('attribute') }}"
+      - "=========================================="
+  tags:
+    - migration
+    - process
+    - debug
+
+- name: "Migrate Item | Prepare item data for migration"
+  ansible.builtin.set_fact:
+    migration_payload: "{{ migration_item }}"
+  tags:
+    - migration
+    - process
+
+- name: "Migrate Item | Debug - Migration payload"
+  ansible.builtin.debug:
+    msg:
+      - "Payload prepared for migration"
+      - "Payload size: {{ migration_payload | to_json | length }} bytes"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - process
+    - debug
+
+- name: "Migrate Item | POST item to destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/v1.0/{{ migration_type | default('attributes') }}"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Content-Type: "application/json"
+    body: "{{ migration_payload | to_json }}"
+    body_format: json
+    status_code: [200, 201]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: migration_response
+  retries: "{{ retry_count }}"
+  delay: "{{ retry_delay }}"
+  until: migration_response.status in [200, 201]
+  tags:
+    - migration
+    - process
+    - post
+
+- name: "Migrate Item | Debug - Migration response"
+  ansible.builtin.debug:
+    msg:
+      - "Migration Response:"
+      - "  Status Code: {{ migration_response.status }}"
+      - "  Response: {{ migration_response.json | default('No response body') }}"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - process
+    - debug
+
+- name: "Migrate Item | Verify migration success"
+  ansible.builtin.assert:
+    that:
+      - migration_response.status in [200, 201]
+    success_msg: "✓ Item migrated successfully"
+    fail_msg: "✗ Item migration failed"
+  tags:
+    - migration
+    - process
+    - validation
+
+- name: "Migrate Item | Debug - Success confirmation"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Item #{{ migration_index + 1 }} migrated successfully"
+      - "Status: {{ migration_response.status }}"
+  tags:
+    - migration
+    - process
+    - debug
+
+- name: "Migrate Item | Pause between migrations"
+  ansible.builtin.pause:
+    seconds: 1
+  when: migration_index < (migration_data | length - 1)
+  tags:
+    - migration
+    - process
+
+# Made with Bob

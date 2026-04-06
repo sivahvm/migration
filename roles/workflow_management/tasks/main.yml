@@ -1,0 +1,92 @@
+---
+# Workflow Management Role - Main Tasks
+# Retrieves workflows from source environment
+
+- name: "Workflow Management | Display header"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Workflow Management - Retrieving Workflows"
+      - "Environment: {{ environment_type }}"
+      - "=========================================="
+  tags:
+    - workflow
+    - retrieval
+
+- name: "Workflow Management | GET workflows from source"
+  ansible.builtin.uri:
+    url: "{{ src_tenant }}/workflows?limit=500&page=1"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ src_access_token }}"
+      Accept: "application/json"
+    status_code: [200]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: workflows_response
+  tags:
+    - workflow
+    - retrieval
+
+- name: "Workflow Management | Debug - API response"
+  ansible.builtin.debug:
+    msg:
+      - "Workflows retrieved:"
+      - "Status: {{ workflows_response.status }}"
+      - "Total Count: {{ workflows_response.json.totalCount | default(0) }}"
+      - "Workflows: {{ workflows_response.json.workflows | default([]) | length }}"
+  when: enable_debug | default(false)
+  tags:
+    - workflow
+    - retrieval
+    - debug
+
+- name: "Workflow Management | Extract workflow list"
+  ansible.builtin.set_fact:
+    all_workflows: "{{ workflows_response.json.workflows | default([]) }}"
+  tags:
+    - workflow
+    - retrieval
+
+- name: "Workflow Management | Apply name filter"
+  ansible.builtin.set_fact:
+    workflows_list: >-
+      {{
+        all_workflows
+        | selectattr('name', 'in', filter_workflow_names)
+        | list
+        if (filter_workflow_names | default([]) | length > 0)
+        else all_workflows
+      }}
+  tags:
+    - workflow
+    - retrieval
+    - filter
+
+- name: "Workflow Management | Debug - Filtered workflows"
+  ansible.builtin.debug:
+    msg:
+      - "Filter applied:"
+      - "Filter names: {{ filter_workflow_names | default([]) }}"
+      - "Total workflows: {{ all_workflows | length }}"
+      - "Filtered workflows: {{ workflows_list | length }}"
+      - "Workflow names: {{ workflows_list | map(attribute='name') | list }}"
+  when: enable_debug | default(false)
+  tags:
+    - workflow
+    - retrieval
+    - filter
+    - debug
+
+- name: "Workflow Management | Display summary"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Workflows retrieved successfully"
+      - "Total workflows: {{ workflows_list | length }}"
+      - "Filter: {{ 'Applied (' + (filter_workflow_names | length | string) + ' names)' if (filter_workflow_names | default([]) | length > 0) else 'None - Processing all workflows' }}"
+  tags:
+    - workflow
+    - retrieval
+    - summary
+
+# Made with Bob

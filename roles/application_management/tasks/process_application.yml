@@ -1,0 +1,101 @@
+---
+# Application Management - Process Individual Application
+# Corporate Standard - Application Processing with Looping
+
+- name: "Process Application | Debug - Current application info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Processing Application #{{ app_index + 1 }}"
+      - "Name: {{ current_application.name }}"
+      - "ID: {{ current_application.id | default('N/A') }}"
+      - "=========================================="
+  tags:
+    - application
+    - process
+    - debug
+
+- name: "Process Application | Extract application ID from href"
+  ansible.builtin.set_fact:
+    current_app_id: "{{ current_application._links.self.href.split('/') | last }}"
+  when: current_application._links.self.href is defined
+  tags:
+    - application
+    - process
+
+- name: "Process Application | Debug - Extracted application ID"
+  ansible.builtin.debug:
+    msg: "Extracted Application ID: {{ current_app_id }}"
+  when: 
+    - enable_debug | default(false)
+    - current_app_id is defined
+  tags:
+    - application
+    - process
+    - debug
+
+- name: "Process Application | Get detailed application information"
+  ansible.builtin.uri:
+    url: "{{ tenant_url }}/v1.0/applications/{{ current_app_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ access_token }}"
+      Content-Type: "application/json"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: app_details_response
+  retries: "{{ retry_count }}"
+  delay: "{{ retry_delay }}"
+  until: app_details_response.status == 200
+  when: current_app_id is defined
+  tags:
+    - application
+    - process
+    - get
+
+- name: "Process Application | Debug - Application details"
+  ansible.builtin.debug:
+    msg:
+      - "Application Details Retrieved:"
+      - "  Name: {{ app_details_response.json.name | default('N/A') }}"
+      - "  Type: {{ app_details_response.json.type | default('N/A') }}"
+      - "  Status: {{ app_details_response.json.status | default('N/A') }}"
+      - "  Created: {{ app_details_response.json.created | default('N/A') }}"
+  when: 
+    - enable_debug | default(false)
+    - app_details_response.json is defined
+  tags:
+    - application
+    - process
+    - debug
+
+- name: "Process Application | Store application data"
+  ansible.builtin.set_fact:
+    current_app_data: "{{ app_details_response.json }}"
+  when: app_details_response.json is defined
+  tags:
+    - application
+    - process
+
+- name: "Process Application | Debug - Application data stored"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Application data stored successfully"
+      - "Ready for migration or further processing"
+  when: 
+    - enable_debug | default(false)
+    - current_app_data is defined
+  tags:
+    - application
+    - process
+    - debug
+
+- name: "Process Application | Completion message"
+  ansible.builtin.debug:
+    msg: "✓ Completed processing application: {{ current_application.name }}"
+  tags:
+    - application
+    - process
+
+# Made with Bob

@@ -1,0 +1,192 @@
+---
+# Workflow Deletion Task
+# Deletes a single workflow from destination by name
+
+- name: "Delete Workflow | Debug - Current workflow info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Deleting Workflow #{{ deletion_index + 1 }}"
+      - "Name: {{ deletion_item }}"
+      - "=========================================="
+  when: enable_debug | default(false)
+  tags:
+    - deletion
+    - workflow
+    - debug
+
+- name: "Delete Workflow | Debug - Request details"
+  ansible.builtin.debug:
+    msg:
+      - "Request URL: {{ dst_tenant }}/workflows"
+      - "Method: GET (to find workflow by name)"
+      - "Filter: name eq '{{ deletion_item }}'"
+      - "Headers:"
+      - "  - Authorization: Bearer {{ dst_access_token[:20] }}..."
+      - "  - Accept: application/json"
+  when: enable_debug | default(false)
+  tags:
+    - deletion
+    - workflow
+    - debug
+
+- name: "Delete Workflow | GET workflows from destination to find by name"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/workflows?limit=500&page=1"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Accept: "application/json"
+    status_code: [200]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: dst_workflows_list_response
+  failed_when: false
+  tags:
+    - deletion
+    - workflow
+
+- name: "Delete Workflow | Debug - API response structure"
+  ansible.builtin.debug:
+    msg:
+      - "API Response Keys: {{ dst_workflows_list_response.json.keys() | list }}"
+      - "Total Count: {{ dst_workflows_list_response.json.totalCount | default(0) }}"
+      - "Workflows Count: {{ dst_workflows_list_response.json.workflows | default([]) | length }}"
+  when: enable_debug | default(false)
+  tags:
+    - deletion
+    - workflow
+    - debug
+
+- name: "Delete Workflow | Find workflow ID by name"
+  ansible.builtin.set_fact:
+    found_workflow: "{{ dst_workflows_list_response.json.workflows | default([]) | selectattr('name', 'equalto', deletion_item) | list | first | default(none) }}"
+  when: dst_workflows_list_response.status == 200
+  tags:
+    - deletion
+    - workflow
+
+- name: "Delete Workflow | Debug - Workflow search result"
+  ansible.builtin.debug:
+    msg:
+      - "Workflow search result:"
+      - "Found: {{ found_workflow is not none }}"
+      - "Workflow ID: {{ found_workflow.id | default('N/A') }}"
+      - "Workflow Name: {{ found_workflow.name | default('N/A') }}"
+  when: enable_debug | default(false)
+  tags:
+    - deletion
+    - workflow
+    - debug
+
+- name: "Delete Workflow | DELETE workflow from destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/workflows/{{ found_workflow.id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Accept: "application/json"
+    status_code: [200, 204, 404, 500]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: workflow_deletion_response
+  failed_when: false
+  changed_when: workflow_deletion_response.status in [200, 204]
+  when: found_workflow is not none
+  tags:
+    - deletion
+    - workflow
+
+- name: "Delete Workflow | Skip deletion - Workflow not found"
+  ansible.builtin.debug:
+    msg: "⚠ Workflow '{{ deletion_item }}' not found in destination - skipping deletion"
+  when: found_workflow is none
+  tags:
+    - deletion
+    - workflow
+
+- name: "Delete Workflow | Debug - Deletion response"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Workflow deleted successfully"
+      - "Status: {{ workflow_deletion_response.status }}"
+      - "Workflow ID: {{ found_workflow.id }}"
+      - "Workflow Name: {{ deletion_item }}"
+      - "Response Headers: {{ workflow_deletion_response | json_query('*.headers') | default('N/A') }}"
+      - "Response Body: {{ workflow_deletion_response.json | default('No content') }}"
+  when:
+    - enable_debug | default(false)
+    - found_workflow is not none
+    - workflow_deletion_response.status in [200, 204]
+  tags:
+    - deletion
+    - workflow
+    - debug
+
+- name: "Delete Workflow | Debug - Workflow not found during deletion"
+  ansible.builtin.debug:
+    msg:
+      - "⚠ Workflow not found during deletion (already deleted)"
+      - "Status: {{ workflow_deletion_response.status }}"
+      - "Workflow Name: {{ deletion_item }}"
+  when:
+    - enable_debug | default(false)
+    - found_workflow is not none
+    - workflow_deletion_response.status == 404
+  tags:
+    - deletion
+    - workflow
+    - debug
+
+- name: "Delete Workflow | Debug - Server error"
+  ansible.builtin.debug:
+    msg:
+      - "⚠ Server error during deletion"
+      - "Status: {{ workflow_deletion_response.status }}"
+      - "Workflow ID: {{ found_workflow.id }}"
+      - "Workflow Name: {{ deletion_item }}"
+      - "Message: {{ workflow_deletion_response.json.messageDescription | default('Internal Server Error') }}"
+      - "Message ID: {{ workflow_deletion_response.json.messageId | default('N/A') }}"
+      - "Full Response: {{ workflow_deletion_response.json | default({}) }}"
+      - "Response Headers: {{ workflow_deletion_response | json_query('*.headers') | default('N/A') }}"
+      - "Correlation ID: {{ workflow_deletion_response | json_query('*.x_correlation_id') | default('N/A') }}"
+  when:
+    - enable_debug | default(false)
+    - found_workflow is not none
+    - workflow_deletion_response.status == 500
+  tags:
+    - deletion
+    - workflow
+    - debug
+
+- name: "Delete Workflow | Success message"
+  ansible.builtin.debug:
+    msg: "✓ Workflow '{{ deletion_item }}' (ID: {{ found_workflow.id }}) deleted successfully"
+  when:
+    - found_workflow is not none
+    - workflow_deletion_response.status in [200, 204]
+  tags:
+    - deletion
+    - workflow
+
+- name: "Delete Workflow | Skip message - Not found during deletion"
+  ansible.builtin.debug:
+    msg: "⚠ Workflow '{{ deletion_item }}' (ID: {{ found_workflow.id }}) not found - already deleted"
+  when:
+    - found_workflow is not none
+    - workflow_deletion_response.status == 404
+  tags:
+    - deletion
+    - workflow
+
+- name: "Delete Workflow | Skip message - Server error"
+  ansible.builtin.debug:
+    msg: "⚠ Workflow '{{ deletion_item }}' (ID: {{ found_workflow.id }}) deletion failed - server error ({{ workflow_deletion_response.json.messageDescription | default('Internal Server Error') }})"
+  when:
+    - found_workflow is not none
+    - workflow_deletion_response.status == 500
+  tags:
+    - deletion
+    - workflow
+
+# Made with Bob

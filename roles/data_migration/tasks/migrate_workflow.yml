@@ -1,0 +1,261 @@
+---
+# Workflow Migration Task
+# Migrates a single workflow from source to destination
+
+- name: "Migrate Workflow | Debug - Current workflow info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Migrating Workflow #{{ workflow_index + 1 }}"
+      - "ID: {{ workflow_item.id }}"
+      - "Name: {{ workflow_item.name }}"
+      - "=========================================="
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - workflow
+    - debug
+
+- name: "Migrate Workflow | GET workflow details from source"
+  ansible.builtin.uri:
+    url: "{{ src_tenant }}/workflows/{{ workflow_item.id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ src_access_token }}"
+      Accept: "application/json"
+    status_code: [200]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: workflow_details_response
+  failed_when: false
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | Debug - Workflow details"
+  ansible.builtin.debug:
+    msg:
+      - "Workflow details retrieved:"
+      - "Status: {{ workflow_details_response.status }}"
+      - "Workflow: {{ workflow_details_response.json | default({}) }}"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - workflow
+    - debug
+
+- name: "Migrate Workflow | Prepare workflow payload"
+  ansible.builtin.set_fact:
+    workflow_payload: "{{ workflow_details_response.json }}"
+  when: workflow_details_response.status == 200
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | Remove system-generated fields"
+  ansible.builtin.set_fact:
+    cleaned_workflow_payload: >-
+      {{
+        workflow_payload
+        | combine({
+            'id': omit,
+            'createdAt': omit,
+            'updatedAt': omit,
+            'createdBy': omit,
+            'updatedBy': omit
+          }, recursive=True)
+      }}
+  when: workflow_details_response.status == 200
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | Debug - Cleaned payload"
+  ansible.builtin.debug:
+    msg:
+      - "Cleaned workflow payload:"
+      - "{{ cleaned_workflow_payload }}"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - workflow
+    - debug
+
+- name: "Migrate Workflow | Check if workflow exists in destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/workflows?limit=500&page=1"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Accept: "application/json"
+    status_code: [200]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: dst_workflows_check_response
+  failed_when: false
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | Find existing workflow by name"
+  ansible.builtin.set_fact:
+    existing_workflow: "{{ dst_workflows_check_response.json.workflows | default([]) | selectattr('name', 'equalto', workflow_item.name) | list | first | default(none) }}"
+  when: dst_workflows_check_response.status == 200
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | Debug - Existing workflow check"
+  ansible.builtin.debug:
+    msg:
+      - "Existing workflow check:"
+      - "Found: {{ existing_workflow is not none }}"
+      - "Existing ID: {{ existing_workflow.id | default('N/A') }}"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - workflow
+    - debug
+
+- name: "Migrate Workflow | POST new workflow to destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/workflows"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Accept: "application/json"
+      Content-Type: "application/json"
+    body: "{{ cleaned_workflow_payload | to_json }}"
+    body_format: json
+    status_code: [200, 201, 400, 409]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: workflow_creation_response
+  failed_when: false
+  changed_when: workflow_creation_response.status in [200, 201]
+  when:
+    - workflow_details_response.status == 200
+    - existing_workflow is none
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | PUT update existing workflow in destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/workflows/{{ existing_workflow.id }}?force=false"
+    method: PUT
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Accept: "application/json"
+      Content-Type: "application/json"
+    body: "{{ cleaned_workflow_payload | to_json }}"
+    body_format: json
+    status_code: [200, 201, 400, 409]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: workflow_update_response
+  failed_when: false
+  changed_when: workflow_update_response.status in [200, 201]
+  when:
+    - workflow_details_response.status == 200
+    - existing_workflow is not none
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | Debug - Creation response"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Workflow created successfully"
+      - "Status: {{ workflow_creation_response.status }}"
+      - "Response: {{ workflow_creation_response.json | default({}) }}"
+  when:
+    - enable_debug | default(false)
+    - existing_workflow is none
+    - workflow_creation_response.status in [200, 201]
+  tags:
+    - migration
+    - workflow
+    - debug
+
+- name: "Migrate Workflow | Debug - Update response"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Workflow updated successfully"
+      - "Status: {{ workflow_update_response.status }}"
+      - "Response: {{ workflow_update_response.json | default({}) }}"
+  when:
+    - enable_debug | default(false)
+    - existing_workflow is not none
+    - workflow_update_response.status in [200, 201]
+  tags:
+    - migration
+    - workflow
+    - debug
+
+- name: "Migrate Workflow | Debug - Conflict error (409)"
+  ansible.builtin.debug:
+    msg:
+      - "⚠ Workflow already exists with same name"
+      - "Status: {{ workflow_creation_response.status | default(workflow_update_response.status) }}"
+      - "Message: {{ workflow_creation_response.json.messageDescription | default(workflow_update_response.json.messageDescription) | default('Conflict') }}"
+  when:
+    - enable_debug | default(false)
+    - (workflow_creation_response.status | default(0)) == 409 or (workflow_update_response.status | default(0)) == 409
+  tags:
+    - migration
+    - workflow
+    - debug
+
+- name: "Migrate Workflow | Debug - Bad request error (400)"
+  ansible.builtin.debug:
+    msg:
+      - "⚠ Bad request - validation error"
+      - "Status: {{ workflow_creation_response.status | default(workflow_update_response.status) }}"
+      - "Message: {{ workflow_creation_response.json.messageDescription | default(workflow_update_response.json.messageDescription) | default('Bad Request') }}"
+      - "Details: {{ workflow_creation_response.json | default(workflow_update_response.json) | default({}) }}"
+  when:
+    - enable_debug | default(false)
+    - (workflow_creation_response.status | default(0)) == 400 or (workflow_update_response.status | default(0)) == 400
+  tags:
+    - migration
+    - workflow
+    - debug
+
+- name: "Migrate Workflow | Success message - Created"
+  ansible.builtin.debug:
+    msg: "✓ Workflow '{{ workflow_item.name }}' created successfully"
+  when:
+    - existing_workflow is none
+    - workflow_creation_response.status in [200, 201]
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | Success message - Updated"
+  ansible.builtin.debug:
+    msg: "✓ Workflow '{{ workflow_item.name }}' updated successfully"
+  when:
+    - existing_workflow is not none
+    - workflow_update_response.status in [200, 201]
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | Skip message - Already exists"
+  ansible.builtin.debug:
+    msg: "⚠ Workflow '{{ workflow_item.name }}' already exists - skipped"
+  when: (workflow_creation_response.status | default(0)) == 409 or (workflow_update_response.status | default(0)) == 409
+  tags:
+    - migration
+    - workflow
+
+- name: "Migrate Workflow | Skip message - Validation error"
+  ansible.builtin.debug:
+    msg: "⚠ Workflow '{{ workflow_item.name }}' validation failed - {{ workflow_creation_response.json.messageDescription | default(workflow_update_response.json.messageDescription) | default('Bad Request') }}"
+  when: (workflow_creation_response.status | default(0)) == 400 or (workflow_update_response.status | default(0)) == 400
+  tags:
+    - migration
+    - workflow
+
+# Made with Bob

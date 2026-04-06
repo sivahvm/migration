@@ -1,0 +1,191 @@
+---
+# Attribute Migration Task
+# Migrates a single attribute from source to destination
+
+- name: "Migrate Attribute | Debug - Current attribute info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Migrating Attribute #{{ migration_index + 1 }}"
+      - "ID: {{ migration_item.id | default('N/A') }}"
+      - "Name: {{ migration_item.name | default('N/A') }}"
+      - "=========================================="
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - attribute
+    - debug
+
+- name: "Migrate Attribute | Prepare attribute data for migration"
+  ansible.builtin.set_fact:
+    attribute_payload_raw: "{{ migration_item }}"
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Get existing attributes from destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/v1.0/attributes"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Content-Type: "application/json"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: dst_attributes_response
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Extract used customAttribute numbers"
+  ansible.builtin.set_fact:
+    used_custom_attrs: >-
+      {{
+        dst_attributes_response.json
+        | selectattr('schemaAttribute', 'defined')
+        | selectattr('schemaAttribute.name', 'defined')
+        | map(attribute='schemaAttribute.name')
+        | select('match', '^customAttribute[0-9]+$')
+        | map('regex_replace', '^customAttribute([0-9]+)$', '\\1')
+        | map('int')
+        | list
+      }}
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Find next available customAttribute number"
+  ansible.builtin.set_fact:
+    next_custom_attr_num: >-
+      {{
+        range(1, 100) | difference(used_custom_attrs) | first
+      }}
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Update schemaAttribute with available slot"
+  ansible.builtin.set_fact:
+    attribute_payload: >-
+      {{
+        attribute_payload_raw
+        | combine({'id': omit, '_links': omit, 'created': omit, 'lastmodified': omit}, recursive=True)
+        | combine({
+            'schemaAttribute': {
+              'customAttribute': true,
+              'name': 'customAttribute' + (next_custom_attr_num | string),
+              'scimFilter': 'urn:ietf:params:scim:schemas:extension:ibm:2.0:User:customAttributes.' + attribute_payload_raw.name,
+              'scimName': attribute_payload_raw.name
+            }
+          }, recursive=True)
+      }}
+  when: attribute_payload_raw.schemaAttribute is defined
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Remove system-generated fields (no schemaAttribute)"
+  ansible.builtin.set_fact:
+    attribute_payload: "{{ attribute_payload_raw | combine({'id': omit, '_links': omit, 'created': omit, 'lastmodified': omit}, recursive=True) }}"
+  when: attribute_payload_raw.schemaAttribute is not defined
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Debug - Migration payload"
+  ansible.builtin.debug:
+    msg:
+      - "Attribute payload prepared for migration"
+      - "ID: {{ attribute_payload.id | default('N/A') }}"
+      - "Name: {{ attribute_payload.name | default('N/A') }}"
+      - "Used customAttribute slots: {{ used_custom_attrs | sort }}"
+      - "Assigned customAttribute: customAttribute{{ next_custom_attr_num }}"
+      - "System fields removed: id, _links, created, lastmodified"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - attribute
+    - debug
+
+- name: "Migrate Attribute | Debug - Full payload dump"
+  ansible.builtin.debug:
+    var: attribute_payload
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - attribute
+    - debug
+
+- name: "Migrate Attribute | POST attribute to destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/v1.0/attributes"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Content-Type: "application/json"
+    body: "{{ attribute_payload | to_json }}"
+    body_format: json
+    status_code: [200, 201, 400, 409]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: attribute_migration_response
+  failed_when: attribute_migration_response.status not in [200, 201, 400, 409]
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Debug - Migration response"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Attribute migrated successfully"
+      - "Status: {{ attribute_migration_response.status }}"
+      - "Response: {{ attribute_migration_response.json | default('N/A') }}"
+  when:
+    - enable_debug | default(false)
+    - attribute_migration_response.status in [200, 201]
+  tags:
+    - migration
+    - attribute
+    - debug
+
+- name: "Migrate Attribute | Debug - Attribute conflict/error"
+  ansible.builtin.debug:
+    msg:
+      - "⚠ Attribute migration issue"
+      - "Status: {{ attribute_migration_response.status }}"
+      - "Message: {{ attribute_migration_response.json.messageDescription | default('Conflict or Error') }}"
+  when:
+    - enable_debug | default(false)
+    - attribute_migration_response.status in [400, 409]
+  tags:
+    - migration
+    - attribute
+    - debug
+
+- name: "Migrate Attribute | Mark as changed"
+  ansible.builtin.set_fact:
+    migration_changed: true
+  when: attribute_migration_response.status in [200, 201]
+  changed_when: true
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Success message"
+  ansible.builtin.debug:
+    msg: "✓ Attribute '{{ migration_item.name | default(migration_item.id) }}' migrated successfully"
+  when: attribute_migration_response.status in [200, 201]
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Skip message"
+  ansible.builtin.debug:
+    msg: "⚠ Attribute '{{ migration_item.name | default(migration_item.id) }}' already exists or has conflict - skipped"
+  when: attribute_migration_response.status in [400, 409]
+  tags:
+    - migration
+    - attribute
+
+# Made with Bob

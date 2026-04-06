@@ -1,0 +1,137 @@
+---
+# Attribute Management Role - Main Tasks
+# Corporate Standard - Attribute CRUD Operations with Looping
+
+- name: "Attribute Management | Display operation information"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Attribute Management Operations"
+      - "Environment: {{ environment_type | default('unknown') }}"
+      - "Operation: {{ operation | default('list') }}"
+      - "=========================================="
+  tags:
+    - attribute
+    - management
+
+- name: "Attribute Management | Get list of attributes"
+  ansible.builtin.uri:
+    url: "{{ tenant_url }}/v1.0/attributes"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ access_token }}"
+      Content-Type: "application/json"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: attributes_response
+  retries: "{{ retry_count }}"
+  delay: "{{ retry_delay }}"
+  until: attributes_response.status == 200
+  when: operation | default('list') in ['list', 'get', 'migrate']
+  tags:
+    - attribute
+    - list
+
+- name: "Attribute Management | Debug - Attributes list"
+  ansible.builtin.debug:
+    msg:
+      - "Total attributes found: {{ attributes_response.json | length }}"
+      - "Attributes retrieved successfully"
+  when: 
+    - enable_debug | default(false)
+    - attributes_response.json is defined
+  tags:
+    - attribute
+    - list
+    - debug
+
+- name: "Attribute Management | Debug - Attribute details"
+  ansible.builtin.debug:
+    msg: "  - Attribute ID: {{ item.id }} | Name: {{ item.name | default('N/A') }}"
+  loop: "{{ attributes_response.json }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: 
+    - enable_debug | default(false)
+    - attributes_response.json is defined
+  tags:
+    - attribute
+    - list
+    - debug
+
+- name: "Attribute Management | Set attributes list fact"
+  ansible.builtin.set_fact:
+    attributes_list: "{{ attributes_response.json }}"
+  when: attributes_response.json is defined
+  tags:
+    - attribute
+    - list
+
+- name: "Attribute Management | Filter attributes by ID list"
+  ansible.builtin.set_fact:
+    attributes_list: "{{ attributes_list | selectattr('id', 'in', filter_attribute_ids) | list }}"
+  when:
+    - attributes_list is defined
+    - filter_attribute_ids is defined
+    - filter_attribute_ids | length > 0
+  tags:
+    - attribute
+    - list
+    - filter
+
+- name: "Attribute Management | Filter attributes by name list"
+  ansible.builtin.set_fact:
+    attributes_list: "{{ attributes_list | selectattr('name', 'in', filter_attribute_names) | list }}"
+  when:
+    - attributes_list is defined
+    - filter_attribute_names is defined
+    - filter_attribute_names | length > 0
+  tags:
+    - attribute
+    - list
+    - filter
+
+- name: "Attribute Management | Debug - Filtered attributes"
+  ansible.builtin.debug:
+    msg:
+      - "Filter applied: {{ filter_attribute_ids | default([]) | length }} attribute IDs, {{ filter_attribute_names | default([]) | length }} attribute names specified"
+      - "Attributes after filtering: {{ attributes_list | length }}"
+  when:
+    - enable_debug | default(false)
+    - ((filter_attribute_ids is defined and filter_attribute_ids | length > 0) or (filter_attribute_names is defined and filter_attribute_names | length > 0))
+  tags:
+    - attribute
+    - list
+    - filter
+    - debug
+
+- name: "Attribute Management | Process each attribute"
+  ansible.builtin.include_tasks: process_attribute.yml
+  loop: "{{ attributes_list }}"
+  loop_control:
+    loop_var: current_attribute
+    index_var: attr_index
+    label: "{{ current_attribute.id }}"
+  when: 
+    - attributes_list is defined
+    - attributes_list | length > 0
+    - operation | default('list') in ['get', 'migrate']
+  tags:
+    - attribute
+    - process
+
+- name: "Attribute Management | Summary"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Attribute Management Summary"
+      - "Total attributes processed: {{ attributes_list | length }}"
+      - "Operation completed successfully"
+      - "=========================================="
+  when: attributes_list is defined
+  tags:
+    - attribute
+    - summary
+
+# Made with Bob

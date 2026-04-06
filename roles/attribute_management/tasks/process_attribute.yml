@@ -1,0 +1,111 @@
+---
+# Attribute Management - Process Individual Attribute
+# Corporate Standard - Attribute Processing with Looping and Debug
+
+- name: "Process Attribute | Debug - Current attribute info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Processing Attribute #{{ attr_index + 1 }}"
+      - "ID: {{ current_attribute.id }}"
+      - "Name: {{ current_attribute.name | default('N/A') }}"
+      - "=========================================="
+  tags:
+    - attribute
+    - process
+    - debug
+
+- name: "Process Attribute | Set current attribute ID"
+  ansible.builtin.set_fact:
+    current_attr_id: "{{ current_attribute.id }}"
+  tags:
+    - attribute
+    - process
+
+- name: "Process Attribute | Debug - Attribute ID"
+  ansible.builtin.debug:
+    msg: "Current Attribute ID: {{ current_attr_id }}"
+  when: enable_debug | default(false)
+  tags:
+    - attribute
+    - process
+    - debug
+
+- name: "Process Attribute | Get detailed attribute information"
+  ansible.builtin.uri:
+    url: "{{ tenant_url }}/v1.0/attributes/{{ current_attr_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ access_token }}"
+      Content-Type: "application/json"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: attr_details_response
+  retries: "{{ retry_count }}"
+  delay: "{{ retry_delay }}"
+  until: attr_details_response.status == 200
+  tags:
+    - attribute
+    - process
+    - get
+
+- name: "Process Attribute | Debug - Attribute details"
+  ansible.builtin.debug:
+    msg:
+      - "Attribute Details Retrieved:"
+      - "  ID: {{ attr_details_response.json.id | default('N/A') }}"
+      - "  Name: {{ attr_details_response.json.name | default('N/A') }}"
+      - "  Type: {{ attr_details_response.json.type | default('N/A') }}"
+      - "  Data Type: {{ attr_details_response.json.dataType | default('N/A') }}"
+  when: 
+    - enable_debug | default(false)
+    - attr_details_response.json is defined
+  tags:
+    - attribute
+    - process
+    - debug
+
+- name: "Process Attribute | Remove ID field for migration"
+  ansible.builtin.set_fact:
+    current_attr_data: "{{ attr_details_response.json | dict2items | rejectattr('key', 'equalto', 'id') | list | items2dict }}"
+  when: 
+    - attr_details_response.json is defined
+    - operation | default('list') == 'migrate'
+  tags:
+    - attribute
+    - process
+    - migrate
+
+- name: "Process Attribute | Store attribute data (non-migration)"
+  ansible.builtin.set_fact:
+    current_attr_data: "{{ attr_details_response.json }}"
+  when: 
+    - attr_details_response.json is defined
+    - operation | default('list') != 'migrate'
+  tags:
+    - attribute
+    - process
+
+- name: "Process Attribute | Debug - Processed attribute data"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Attribute data processed successfully"
+      - "ID field removed: {{ 'Yes' if operation | default('list') == 'migrate' else 'No' }}"
+      - "Ready for {{ operation | default('list') }} operation"
+  when: 
+    - enable_debug | default(false)
+    - current_attr_data is defined
+  tags:
+    - attribute
+    - process
+    - debug
+
+- name: "Process Attribute | Completion message"
+  ansible.builtin.debug:
+    msg: "✓ Completed processing attribute: {{ current_attribute.id }}"
+  tags:
+    - attribute
+    - process
+
+# Made with Bob

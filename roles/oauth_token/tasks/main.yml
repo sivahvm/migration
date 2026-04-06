@@ -1,0 +1,100 @@
+---
+# OAuth Token Management Role - Main Tasks
+# Corporate Standard - OAuth Authentication
+
+- name: "OAuth Token | Display environment information"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "OAuth Token Generation"
+      - "Environment: {{ environment_type | default('unknown') }}"
+      - "Tenant: {{ tenant_url }}"
+      - "=========================================="
+  tags:
+    - oauth
+    - token
+
+- name: "OAuth Token | Validate required variables"
+  ansible.builtin.assert:
+    that:
+      - tenant_url is defined
+      - client_id is defined
+      - client_secret is defined
+      - token_endpoint is defined
+    fail_msg: "Required OAuth variables are not defined"
+    success_msg: "All required OAuth variables are present"
+  tags:
+    - oauth
+    - token
+    - validation
+
+- name: "OAuth Token | Debug - Request parameters"
+  ansible.builtin.debug:
+    msg:
+      - "Token URL: {{ tenant_url }}{{ token_endpoint }}"
+      - "Client ID: {{ client_id[:10] }}..."
+      - "Grant Type: {{ oauth_grant_type }}"
+      - "Scope: {{ oauth_scope | default('Not specified') }}"
+  when: enable_debug | default(false)
+  tags:
+    - oauth
+    - token
+    - debug
+
+- name: "OAuth Token | Request access token"
+  ansible.builtin.uri:
+    url: "{{ tenant_url }}{{ token_endpoint }}"
+    method: POST
+    body_format: form-urlencoded
+    body:
+      grant_type: "{{ oauth_grant_type }}"
+      client_id: "{{ client_id }}"
+      client_secret: "{{ client_secret }}"
+      scope: "{{ oauth_scope | default(omit) }}"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: token_response
+  retries: "{{ retry_count }}"
+  delay: "{{ retry_delay }}"
+  until: token_response.status == 200
+  tags:
+    - oauth
+    - token
+
+- name: "OAuth Token | Debug - Token response"
+  ansible.builtin.debug:
+    msg:
+      - "Status Code: {{ token_response.status }}"
+      - "Token Type: {{ token_response.json.token_type | default('N/A') }}"
+      - "Expires In: {{ token_response.json.expires_in | default('N/A') }} seconds"
+      - "Access Token (first 20 chars): {{ token_response.json.access_token[:20] }}..."
+  when: 
+    - enable_debug | default(false)
+    - token_response.json.access_token is defined
+  tags:
+    - oauth
+    - token
+    - debug
+
+- name: "OAuth Token | Set access token fact"
+  ansible.builtin.set_fact:
+    access_token: "{{ token_response.json.access_token }}"
+    token_type: "{{ token_response.json.token_type | default('Bearer') }}"
+    token_expires_in: "{{ token_response.json.expires_in | default(3600) }}"
+  tags:
+    - oauth
+    - token
+
+- name: "OAuth Token | Success message"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "✓ OAuth token generated successfully"
+      - "Token will expire in {{ token_expires_in }} seconds"
+      - "=========================================="
+  tags:
+    - oauth
+    - token
+
+# Made with Bob

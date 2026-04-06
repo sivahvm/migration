@@ -1,0 +1,66 @@
+---
+# Data Migration Role - Main Tasks
+# Corporate Standard - Migrate data from source to destination with looping
+
+- name: "Data Migration | Display migration information"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Data Migration Operations"
+      - "Source: {{ src_tenant }}"
+      - "Destination: {{ dst_tenant }}"
+      - "Migration Type: {{ migration_type | default('attributes') }}"
+      - "=========================================="
+  tags:
+    - migration
+    - data
+
+- name: "Data Migration | Validate migration prerequisites"
+  ansible.builtin.assert:
+    that:
+      - src_access_token is defined
+      - dst_access_token is defined
+      - migration_data is defined
+      - migration_data | length > 0
+    fail_msg: "Migration prerequisites not met. Ensure tokens and data are available."
+    success_msg: "All migration prerequisites validated successfully"
+  tags:
+    - migration
+    - validation
+
+- name: "Data Migration | Debug - Migration data count"
+  ansible.builtin.debug:
+    msg:
+      - "Total items to migrate: {{ migration_data | length }}"
+      - "Migration will process each item sequentially"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - debug
+
+- name: "Data Migration | Migrate each item"
+  ansible.builtin.include_tasks: migrate_item.yml
+  loop: "{{ migration_data }}"
+  loop_control:
+    loop_var: migration_item
+    index_var: migration_index
+    label: "Item #{{ migration_index + 1 }}"
+  tags:
+    - migration
+    - process
+
+- name: "Data Migration | Summary"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Data Migration Summary"
+      - "Total items migrated: {{ migration_data | length }}"
+      - "Source: {{ src_tenant }}"
+      - "Destination: {{ dst_tenant }}"
+      - "Migration completed successfully"
+      - "=========================================="
+  tags:
+    - migration
+    - summary
+
+# Made with Bob

@@ -1,0 +1,185 @@
+---
+# Application Migration Task
+# Migrates a single application from source to destination
+
+- name: "Migrate Application | Debug - Current application info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Migrating Application #{{ migration_index + 1 }}"
+      - "Name: {{ migration_item.name | default('N/A') }}"
+      - "=========================================="
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - application
+    - debug
+
+- name: "Migrate Application | Extract application ID from href"
+  ansible.builtin.set_fact:
+    application_id: "{{ migration_item._links.self.href | regex_search('[0-9]+$') }}"
+  tags:
+    - migration
+    - application
+
+- name: "Migrate Application | Debug - Extracted ID"
+  ansible.builtin.debug:
+    msg: "Extracted Application ID: {{ application_id }}"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - application
+    - debug
+
+- name: "Migrate Application | GET full application details from source"
+  ansible.builtin.uri:
+    url: "{{ src_tenant }}/v1.0/applications/{{ application_id }}"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ src_access_token }}"
+      Content-Type: "application/json"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: application_details_response
+  retries: "{{ retry_count }}"
+  delay: "{{ retry_delay }}"
+  until: application_details_response.status == 200
+  tags:
+    - migration
+    - application
+
+- name: "Migrate Application | Prepare application data for migration"
+  ansible.builtin.set_fact:
+    application_payload_raw: "{{ application_details_response.json }}"
+  tags:
+    - migration
+    - application
+
+- name: "Migrate Application | Remove clientId and clientSecret from apiAccessClients"
+  ansible.builtin.set_fact:
+    cleaned_api_clients: >-
+      {{
+        application_payload_raw.apiAccessClients | default([]) | map('combine', {'clientId': omit, 'clientSecret': omit}, recursive=True) | list
+      }}
+  tags:
+    - migration
+    - application
+
+- name: "Migrate Application | Remove system-generated fields"
+  ansible.builtin.set_fact:
+    application_payload: >-
+      {{
+        application_payload_raw
+        | combine({'_links': omit, 'id': omit, 'created': omit, 'lastmodified': omit}, recursive=True)
+        | combine({'apiAccessClients': cleaned_api_clients}, recursive=True)
+        | combine({
+            'providers': {
+              'oidc': (application_payload_raw.providers.oidc | default({}) | combine({
+                'properties': (application_payload_raw.providers.oidc.properties | default({}) | combine({
+                  'clientId': omit,
+                  'clientSecret': omit
+                }, recursive=True))
+              }, recursive=True))
+            }
+          }, recursive=True) if application_payload_raw.providers.oidc is defined else application_payload_raw | combine({'_links': omit, 'id': omit, 'created': omit, 'lastmodified': omit}, recursive=True) | combine({'apiAccessClients': cleaned_api_clients}, recursive=True)
+      }}
+  tags:
+    - migration
+    - application
+
+- name: "Migrate Application | Debug - Migration payload"
+  ansible.builtin.debug:
+    msg:
+      - "Application payload prepared for migration"
+      - "Name: {{ application_payload.name | default('N/A') }}"
+      - "System fields removed: _links, id, created, lastmodified"
+      - "ClientId removed: {{ 'clientId' not in (application_payload.providers.oidc.properties | default({})) }}"
+      - "ClientSecret removed: {{ 'clientSecret' not in (application_payload.providers.oidc.properties | default({})) }}"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - application
+    - debug
+
+- name: "Migrate Application | Debug - Full payload dump"
+  ansible.builtin.debug:
+    var: application_payload
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - application
+    - debug
+
+- name: "Migrate Application | POST application to destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/v1.0/applications"
+    method: POST
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Content-Type: "application/json"
+    body: "{{ application_payload | to_json }}"
+    body_format: json
+    status_code: [200, 201, 400, 409]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: application_migration_response
+  failed_when: application_migration_response.status not in [200, 201, 400, 409]
+  tags:
+    - migration
+    - application
+
+- name: "Migrate Application | Debug - Migration response"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Application migrated successfully"
+      - "Status: {{ application_migration_response.status }}"
+      - "Response: {{ application_migration_response.json | default('N/A') }}"
+  when:
+    - enable_debug | default(false)
+    - application_migration_response.status in [200, 201]
+  tags:
+    - migration
+    - application
+    - debug
+
+- name: "Migrate Application | Debug - Application already exists"
+  ansible.builtin.debug:
+    msg:
+      - "⚠ Application already exists in destination"
+      - "Status: {{ application_migration_response.status }}"
+      - "Message: {{ application_migration_response.json.messageDescription | default('Conflict') }}"
+  when:
+    - enable_debug | default(false)
+    - application_migration_response.status == 409
+  tags:
+    - migration
+    - application
+    - debug
+
+- name: "Migrate Application | Mark as changed"
+  ansible.builtin.set_fact:
+    migration_changed: true
+  when: application_migration_response.status in [200, 201]
+  changed_when: true
+  tags:
+    - migration
+    - application
+
+- name: "Migrate Application | Success message"
+  ansible.builtin.debug:
+    msg: "✓ Application '{{ migration_item.name | default('N/A') }}' migrated successfully"
+  when: application_migration_response.status in [200, 201]
+  tags:
+    - migration
+    - application
+
+- name: "Migrate Application | Skip message"
+  ansible.builtin.debug:
+    msg: "⚠ Application '{{ migration_item.name | default('N/A') }}' already exists - skipped ({{ application_migration_response.json.messageDescription | default('Conflict') }})"
+  when: application_migration_response.status in [400, 409]
+  tags:
+    - migration
+    - application
+
+# Made with Bob
