@@ -13,8 +13,7 @@
 # Date: 2026-04-01
 
 - name: "API Management | Source Environment - Authentication and Data Retrieval"
-  hosts: localhost
-  connection: local
+  hosts: source_environment
   gather_facts: no
   vars:
     tenant_url: "{{ src_tenant }}"
@@ -108,8 +107,7 @@
         - summary
 
 - name: "API Management | Destination Environment - Authentication"
-  hosts: localhost
-  connection: local
+  hosts: destination_environment
   gather_facts: no
   vars:
     tenant_url: "{{ dst_tenant }}"
@@ -165,8 +163,7 @@
         - summary
 
 - name: "API Management | Data Deletion - Applications"
-  hosts: localhost
-  connection: local
+  hosts: destination_environment
   gather_facts: no
   vars:
     deletion_data: "{{ delete_application_names | default([]) }}"
@@ -228,8 +225,7 @@
         - summary
 
 - name: "API Management | Data Deletion - Workflows"
-  hosts: localhost
-  connection: local
+  hosts: destination_environment
   gather_facts: no
   vars:
     deletion_data: "{{ delete_workflow_names | default([]) }}"
@@ -291,8 +287,7 @@
         - summary
 
 - name: "API Management | Data Migration - Applications"
-  hosts: localhost
-  connection: local
+  hosts: destination_environment
   gather_facts: no
   vars:
     migration_type: "applications"
@@ -367,8 +362,7 @@
         - summary
 
 - name: "API Management | Data Migration - Attributes"
-  hosts: localhost
-  connection: local
+  hosts: destination_environment
   gather_facts: no
   vars:
     migration_type: "attributes"
@@ -428,8 +422,7 @@
         - summary
 
 - name: "API Management | Data Migration - Workflows"
-  hosts: localhost
-  connection: local
+  hosts: destination_environment
   gather_facts: no
   vars:
     migration_type: "workflows"
@@ -492,7 +485,8 @@
 
 - name: "API Management | Final Summary"
   hosts: localhost
-  gather_facts: no  
+  gather_facts: no
+  
   tasks:
     - name: "Summary | Display final results"
       ansible.builtin.debug:
