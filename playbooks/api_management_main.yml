@@ -366,7 +366,7 @@
   gather_facts: no
   vars:
     migration_type: "attributes"
-    migration_data: "{{ hostvars[groups['source_environment'][0]]['source_attributes'] | default([]) }}"
+    migration_data: "{{ source_attributes | default([]) }}"
   
   tasks:
     - name: "Migration | Display phase header"
