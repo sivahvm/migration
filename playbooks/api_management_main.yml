@@ -318,9 +318,9 @@
 
     - name: "Migration | Set migration variables"
       ansible.builtin.set_fact:
-        src_access_token: "{{ hostvars[groups['source_environment'][0]]['src_access_token'] }}"
+        src_access_token: "{{ src_access_token }}"
         dst_access_token: "{{ access_token }}"
-        src_tenant: "{{ hostvars[groups['source_environment'][0]]['src_tenant'] }}"
+        src_tenant: "{{ src_tenant }}"
       when:
         - migration_data | length > 0
         - enable_application_migration | default(true)
@@ -381,9 +381,9 @@
 
     - name: "Migration | Set migration variables"
       ansible.builtin.set_fact:
-        src_access_token: "{{ hostvars[groups['source_environment'][0]]['src_access_token'] }}"
+        src_access_token: "{{ src_access_token }}"
         dst_access_token: "{{ access_token }}"
-        src_tenant: "{{ hostvars[groups['source_environment'][0]]['src_tenant'] }}"
+        src_tenant: "{{ src_tenant }}"
       tags:
         - migration
         - attributes
@@ -426,7 +426,7 @@
   gather_facts: no
   vars:
     migration_type: "workflows"
-    migration_data: "{{ hostvars[groups['source_environment'][0]]['source_workflows'] | default([]) }}"
+    migration_data: "{{ source_workflows | default([]) }}"
   
   tasks:
     - name: "Migration | Display phase header"
@@ -494,8 +494,8 @@
           - "=========================================="
           - "API MANAGEMENT AUTOMATION COMPLETED"
           - "=========================================="
-          - "Source Environment: {{ hostvars[groups['source_environment'][0]]['src_environment_name'] | default('Not configured') }}"
-          - "Destination Environment: {{ hostvars[groups['destination_environment'][0]]['dst_environment_name'] | default('Not configured') }}"
+          - "Source Environment: {{src_environment_name | default('Not configured') }}"
+          - "Destination Environment: {{ dst_environment_name | default('Not configured') }}"
           - ""
           - "Results:"
           - "  - Applications retrieved: {{ source_applications | default([]) | length }}"
