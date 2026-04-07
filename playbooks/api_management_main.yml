@@ -291,7 +291,7 @@
   gather_facts: no
   vars:
     migration_type: "applications"
-    migration_data: "{{ hostvars[groups['source_environment'][0]]['source_applications'] | default([]) }}"
+    migration_data: "{{ source_applications | default([]) }}"
   
   tasks:
     - name: "Migration | Display phase header"
@@ -498,14 +498,14 @@
           - "Destination Environment: {{ hostvars[groups['destination_environment'][0]]['dst_environment_name'] | default('Not configured') }}"
           - ""
           - "Results:"
-          - "  - Applications retrieved: {{ hostvars[groups['source_environment'][0]]['source_applications'] | default([]) | length }}"
-          - "  - Applications deleted: {{ hostvars[groups['destination_environment'][0]]['applications_deleted_count'] | default(0) }}"
-          - "  - Applications migrated: {{ hostvars[groups['destination_environment'][0]]['applications_migrated_count'] | default(0) }}"
-          - "  - Attributes retrieved: {{ hostvars[groups['source_environment'][0]]['source_attributes'] | default([]) | length }}"
-          - "  - Attributes migrated: {{ hostvars[groups['destination_environment'][0]]['attributes_migrated_count'] | default(0) }}"
-          - "  - Workflows retrieved: {{ hostvars[groups['source_environment'][0]]['source_workflows'] | default([]) | length }}"
-          - "  - Workflows deleted: {{ hostvars[groups['destination_environment'][0]]['workflows_deleted_count'] | default(0) }}"
-          - "  - Workflows migrated: {{ hostvars[groups['destination_environment'][0]]['workflows_migrated_count'] | default(0) }}"
+          - "  - Applications retrieved: {{ source_applications | default([]) | length }}"
+          - "  - Applications deleted: {{ applications_deleted_count | default(0) }}"
+          - "  - Applications migrated: applications_migrated_count | default(0) }}"
+          - "  - Attributes retrieved: {{ source_attributes | default([]) | length }}"
+          - "  - Attributes migrated: {{ attributes_migrated_count | default(0) }}"
+          - "  - Workflows retrieved: {{ source_workflows | default([]) | length }}"
+          - "  - Workflows deleted: {{ workflows_deleted_count | default(0) }}"
+          - "  - Workflows migrated: {{ workflows_migrated_count | default(0) }}"
           - ""
           - "Status: SUCCESS ✓"
           - "=========================================="
