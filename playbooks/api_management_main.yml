@@ -1,16 +1,17 @@
 ---
-# Main Playbook - API Management Automation
+# Main Playbook - API Management Automation (Ansible Tower/AAP Compatible)
 # Corporate Standard - Complete API Management Workflow
 # 
 # Description: This playbook orchestrates the complete API management workflow
 #              including OAuth authentication, application management, attribute
 #              management, and data migration between environments.
+#              This version is optimized for Ansible Tower/AAP Controller.
 #
-# Usage: ansible-playbook -i inventory/hosts.yml playbooks/api_management_main.yml
+# Usage: Configure as Job Template in Ansible Tower/AAP
 #
-# Author: H1 Corporation - DevOps Team
-# Version: 1.0.0
-# Date: 2026-04-01
+# Author: Isracard DevOps Team
+# Version: 2.0.0 (Tower Compatible)
+# Date: 2026-04-07
 
 - name: "API Management | Source Environment - Authentication and Data Retrieval"
   hosts: source_environment
@@ -29,10 +30,10 @@
         msg:
           - "=========================================="
           - "API MANAGEMENT AUTOMATION PLAYBOOK"
-          - "Corporate Standard - Version 1.0.0"
+          - "Corporate Standard - Version 2.0.0 (Tower)"
           - "=========================================="
           - "Phase 1: Source Environment Processing"
-          - "Environment: {{ src_environment_name }}"
+          - "Environment: {{ src_environment_name | default('Source') }}"
           - "Tenant: {{ src_tenant }}"
           - "=========================================="
       tags: always
@@ -93,6 +94,29 @@
         - source
         - data
 
+    # Tower-compatible: Store data in a file for cross-play sharing
+    - name: "Source | Save migration data to temp file"
+      ansible.builtin.copy:
+        content: |
+          ---
+          src_access_token: "{{ src_access_token }}"
+          src_tenant: "{{ src_tenant }}"
+          source_applications: {{ source_applications | to_nice_json }}
+          source_attributes: {{ source_attributes | to_nice_json }}
+          source_workflows: {{ source_workflows | to_nice_json }}
+        dest: "/tmp/migration_data_{{ ansible_date_time.epoch }}.yml"
+      register: migration_data_file
+      tags:
+        - source
+        - data
+
+    - name: "Source | Store migration data file path"
+      ansible.builtin.set_fact:
+        migration_data_path: "{{ migration_data_file.dest }}"
+      tags:
+        - source
+        - data
+
     - name: "Source | Phase 1 completion"
       ansible.builtin.debug:
         msg:
@@ -101,6 +125,7 @@
           - "Applications: {{ 'Enabled - ' + (source_applications | length | string) + ' retrieved' if enable_application_migration | default(true) else 'Disabled - Skipped' }}"
           - "Attributes: {{ 'Enabled - ' + (source_attributes | length | string) + ' retrieved' if enable_attribute_migration | default(true) else 'Disabled - Skipped' }}"
           - "Workflows: {{ 'Enabled - ' + (source_workflows | length | string) + ' retrieved' if enable_workflow_migration | default(true) else 'Disabled - Skipped' }}"
+          - "Data file: {{ migration_data_path }}"
           - "=========================================="
       tags:
         - source
@@ -123,7 +148,7 @@
         msg:
           - "=========================================="
           - "Phase 2: Destination Environment Processing"
-          - "Environment: {{ dst_environment_name }}"
+          - "Environment: {{ dst_environment_name | default('Destination') }}"
           - "Tenant: {{ dst_tenant }}"
           - "=========================================="
       tags: always
@@ -286,12 +311,57 @@
         - deletion
         - summary
 
+- name: "API Management | Load Migration Data"
+  hosts: destination_environment
+  gather_facts: yes
+  tasks:
+    - name: "Migration | Find migration data file"
+      ansible.builtin.find:
+        paths: /tmp
+        patterns: "migration_data_*.yml"
+        age: -1h
+      register: found_files
+      tags:
+        - migration
+        - data
+
+    - name: "Migration | Load migration data from file"
+      ansible.builtin.include_vars:
+        file: "{{ found_files.files | sort(attribute='mtime') | last | json_query('path') }}"
+      when: found_files.matched > 0
+      tags:
+        - migration
+        - data
+
+    - name: "Migration | Set default empty data if no file found"
+      ansible.builtin.set_fact:
+        source_applications: []
+        source_attributes: []
+        source_workflows: []
+        src_access_token: ""
+        src_tenant: ""
+      when: found_files.matched == 0
+      tags:
+        - migration
+        - data
+
+    - name: "Migration | Debug - Loaded data"
+      ansible.builtin.debug:
+        msg:
+          - "Applications loaded: {{ source_applications | length }}"
+          - "Attributes loaded: {{ source_attributes | length }}"
+          - "Workflows loaded: {{ source_workflows | length }}"
+      when: enable_debug | default(false)
+      tags:
+        - migration
+        - debug
+
 - name: "API Management | Data Migration - Applications"
   hosts: destination_environment
   gather_facts: no
   vars:
     migration_type: "applications"
-    migration_data: "{{ hostvars[groups['source_environment'][0]]['source_applications'] | default([]) }}"
+    migration_data: "{{ source_applications | default([]) }}"
   
   tasks:
     - name: "Migration | Display phase header"
@@ -315,18 +385,6 @@
         - migration
         - applications
         - debug
-
-    - name: "Migration | Set migration variables"
-      ansible.builtin.set_fact:
-        src_access_token: "{{ hostvars[groups['source_environment'][0]]['src_access_token'] }}"
-        dst_access_token: "{{ access_token }}"
-        src_tenant: "{{ hostvars[groups['source_environment'][0]]['src_tenant'] }}"
-      when:
-        - migration_data | length > 0
-        - enable_application_migration | default(true)
-      tags:
-        - migration
-        - applications
 
     - name: "Migration | Migrate each application to destination"
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/data_migration/tasks/migrate_application.yml"
@@ -366,7 +424,7 @@
   gather_facts: no
   vars:
     migration_type: "attributes"
-    migration_data: "{{ hostvars[groups['source_environment'][0]]['source_attributes'] | default([]) }}"
+    migration_data: "{{ source_attributes | default([]) }}"
   
   tasks:
     - name: "Migration | Display phase header"
@@ -378,15 +436,6 @@
           - "Items to migrate: {{ migration_data | length }}"
           - "=========================================="
       tags: always
-
-    - name: "Migration | Set migration variables"
-      ansible.builtin.set_fact:
-        src_access_token: "{{ hostvars[groups['source_environment'][0]]['src_access_token'] }}"
-        dst_access_token: "{{ access_token }}"
-        src_tenant: "{{ hostvars[groups['source_environment'][0]]['src_tenant'] }}"
-      tags:
-        - migration
-        - attributes
 
     - name: "Migration | Migrate each attribute to destination"
       ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/data_migration/tasks/migrate_attribute.yml"
@@ -426,7 +475,7 @@
   gather_facts: no
   vars:
     migration_type: "workflows"
-    migration_data: "{{ hostvars[groups['source_environment'][0]]['source_workflows'] | default([]) }}"
+    migration_data: "{{ source_workflows | default([]) }}"
   
   tasks:
     - name: "Migration | Display phase header"
@@ -483,37 +532,41 @@
         - migration
         - summary
 
-- name: "API Management | Final Summary"
-  hosts: localhost
+- name: "API Management | Cleanup and Final Summary"
+  hosts: destination_environment
   gather_facts: no
   
   tasks:
+    - name: "Cleanup | Remove migration data file"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ found_files.files | default([]) }}"
+      when: found_files is defined and found_files.matched > 0
+      tags:
+        - cleanup
+
     - name: "Summary | Display final results"
       ansible.builtin.debug:
         msg:
           - "=========================================="
           - "API MANAGEMENT AUTOMATION COMPLETED"
           - "=========================================="
-          - "Source Environment: {{ hostvars[groups['source_environment'][0]]['src_environment_name'] | default('Not configured') }}"
-          - "Destination Environment: {{ hostvars[groups['destination_environment'][0]]['dst_environment_name'] | default('Not configured') }}"
+          - "Source Environment: {{ src_environment_name | default('Source') }}"
+          - "Destination Environment: {{ dst_environment_name | default('Destination') }}"
           - ""
           - "Results:"
-          - "  - Applications retrieved: {{ hostvars[groups['source_environment'][0]]['source_applications'] | default([]) | length }}"
-          - "  - Applications deleted: {{ hostvars[groups['destination_environment'][0]]['applications_deleted_count'] | default(0) }}"
-          - "  - Applications migrated: {{ hostvars[groups['destination_environment'][0]]['applications_migrated_count'] | default(0) }}"
-          - "  - Attributes retrieved: {{ hostvars[groups['source_environment'][0]]['source_attributes'] | default([]) | length }}"
-          - "  - Attributes migrated: {{ hostvars[groups['destination_environment'][0]]['attributes_migrated_count'] | default(0) }}"
-          - "  - Workflows retrieved: {{ hostvars[groups['source_environment'][0]]['source_workflows'] | default([]) | length }}"
-          - "  - Workflows deleted: {{ hostvars[groups['destination_environment'][0]]['workflows_deleted_count'] | default(0) }}"
-          - "  - Workflows migrated: {{ hostvars[groups['destination_environment'][0]]['workflows_migrated_count'] | default(0) }}"
+          - "  - Applications retrieved: {{ source_applications | default([]) | length }}"
+          - "  - Applications deleted: {{ applications_deleted_count | default(0) }}"
+          - "  - Applications migrated: {{ applications_migrated_count | default(0) }}"
+          - "  - Attributes retrieved: {{ source_attributes | default([]) | length }}"
+          - "  - Attributes migrated: {{ attributes_migrated_count | default(0) }}"
+          - "  - Workflows retrieved: {{ source_workflows | default([]) | length }}"
+          - "  - Workflows deleted: {{ workflows_deleted_count | default(0) }}"
+          - "  - Workflows migrated: {{ workflows_migrated_count | default(0) }}"
           - ""
           - "Status: SUCCESS ✓"
           - "=========================================="
-      when:
-        - groups['source_environment'] is defined
-        - groups['source_environment'] | length > 0
-        - groups['destination_environment'] is defined
-        - groups['destination_environment'] | length > 0
       tags: always
 
-# Made with Bob
+# Made with Bob - Tower Compatible Version
