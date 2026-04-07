@@ -327,7 +327,7 @@
 
     - name: "Migration | Load migration data from file"
       ansible.builtin.include_vars:
-        file: "{{ found_files.files | sort(attribute='mtime') | last | json_query('path') }}"
+        file: "{{ (found_files.files | sort(attribute='mtime') | last).path }}"
       when: found_files.matched > 0
       tags:
         - migration
