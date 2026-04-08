@@ -1,0 +1,19 @@
+{
+  "sso": {
+    "userOptions": "oidc",
+    "oidc": {
+      "redirectUris": [
+{% for uri in oidc_redirect_uris %}
+        "{{ uri }}"{% if not loop.last %},{% endif %}
+
+{% endfor %}
+      ]{% if application_data.sso.oidc.clientId is defined %},
+      "clientId": "{{ application_data.sso.oidc.clientId }}",
+      "clientSecret": "{{ application_data.sso.oidc.clientSecret | default('') }}"{% endif %}{% if application_data.sso.oidc.grantTypes is defined %},
+      "grantTypes": {{ application_data.sso.oidc.grantTypes | to_json }}{% endif %}{% if application_data.sso.oidc.responseTypes is defined %},
+      "responseTypes": {{ application_data.sso.oidc.responseTypes | to_json }}{% endif %}{% if application_data.sso.oidc.scopes is defined %},
+      "scopes": {{ application_data.sso.oidc.scopes | to_json }}{% endif %}
+
+    }
+  }
+}

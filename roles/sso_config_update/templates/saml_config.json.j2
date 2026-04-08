@@ -1,0 +1,15 @@
+{
+  "sso": {
+    "userOptions": "saml",
+    "saml": {
+      "assertionConsumerServiceUrl": "{{ saml_assertion_consumer_service_url }}"{% if saml_entity_id is defined and saml_entity_id | length > 0 %},
+      "entityId": "{{ saml_entity_id }}"{% endif %}{% if saml_single_logout_url is defined and saml_single_logout_url | length > 0 %},
+      "singleLogoutServiceUrl": "{{ saml_single_logout_url }}"{% endif %}{% if application_data.sso.saml.nameIdFormat is defined %},
+      "nameIdFormat": "{{ application_data.sso.saml.nameIdFormat }}"{% endif %}{% if application_data.sso.saml.signatureAlgorithm is defined %},
+      "signatureAlgorithm": "{{ application_data.sso.saml.signatureAlgorithm }}"{% endif %}{% if application_data.sso.saml.digestAlgorithm is defined %},
+      "digestAlgorithm": "{{ application_data.sso.saml.digestAlgorithm }}"{% endif %}{% if application_data.sso.saml.certificate is defined %},
+      "certificate": "{{ application_data.sso.saml.certificate }}"{% endif %}
+
+    }
+  }
+}

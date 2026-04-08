@@ -88,6 +88,30 @@
     - migration
     - application
 
+- name: "Migrate Application | Update SSO configuration (if enabled)"
+  ansible.builtin.include_role:
+    name: "{{ playbook_dir }}/../roles/sso_config_update"
+  vars:
+    application_data: "{{ application_payload }}"
+  when:
+    - enable_sso_config_update | default(false)
+    - application_payload.providers is defined
+    - application_payload.providers.sso is defined
+    - application_payload.providers.sso.userOptions is defined
+  tags:
+    - migration
+    - application
+    - sso
+
+- name: "Migrate Application | Use updated application data"
+  ansible.builtin.set_fact:
+    application_payload: "{{ updated_application_data | default(application_payload) }}"
+  when: enable_sso_config_update | default(false)
+  tags:
+    - migration
+    - application
+    - sso
+
 - name: "Migrate Application | Debug - Migration payload"
   ansible.builtin.debug:
     msg:
@@ -96,6 +120,8 @@
       - "System fields removed: _links, id, created, lastmodified"
       - "ClientId removed: {{ 'clientId' not in (application_payload.providers.oidc.properties | default({})) }}"
       - "ClientSecret removed: {{ 'clientSecret' not in (application_payload.providers.oidc.properties | default({})) }}"
+      - "SSO Config Updated: {{ enable_sso_config_update | default(false) }}"
+      - "SSO Type: {{ application_payload.providers.sso.userOptions | default('N/A') }}"
   when: enable_debug | default(false)
   tags:
     - migration

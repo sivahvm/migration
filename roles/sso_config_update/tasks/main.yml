@@ -1,0 +1,209 @@
+---
+# SSO Configuration Update Role - Main Tasks
+# Dynamically updates SSO configuration based on userOptions type
+# - OIDC: Updates redirectUris
+# - SAML: Updates assertionConsumerServiceUrl
+
+- name: "SSO Config | Display operation information"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "SSO Configuration Update"
+      - "Application: {{ application_data.name }}"
+      - "SSO Type: {{ application_data.providers.sso.userOptions | default('not configured') }}"
+      - "=========================================="
+  when: enable_debug | default(false)
+  tags:
+    - sso
+    - config
+
+- name: "SSO Config | Check if SSO is configured"
+  ansible.builtin.set_fact:
+    has_sso_config: "{{ application_data.providers is defined and application_data.providers.sso is defined and application_data.providers.sso.userOptions is defined }}"
+    sso_user_options: "{{ application_data.providers.sso.userOptions | default('') }}"
+  tags:
+    - sso
+    - config
+
+- name: "SSO Config | Debug - SSO configuration status"
+  ansible.builtin.debug:
+    msg:
+      - "Has SSO Config: {{ has_sso_config }}"
+      - "SSO User Options: {{ sso_user_options }}"
+  when: enable_debug | default(false)
+  tags:
+    - sso
+    - config
+    - debug
+
+# OIDC Configuration Update
+- name: "SSO Config | Update OIDC redirectUris"
+  block:
+    - name: "SSO Config | Check for application-specific redirect URIs"
+      ansible.builtin.set_fact:
+        app_has_specific_uris: "{{ application_data.name in (oidc_redirect_uris_per_app | default({})) }}"
+        app_name: "{{ application_data.name | default('') }}"
+
+    - name: "SSO Config | Use application-specific redirect URIs"
+      ansible.builtin.set_fact:
+        final_redirect_uris: "{{ oidc_redirect_uris_per_app[app_name] }}"
+      when:
+        - app_has_specific_uris | bool
+        - oidc_redirect_uris_per_app is defined
+
+    - name: "SSO Config | Debug - Current OIDC redirectUris"
+      ansible.builtin.debug:
+        msg:
+          - "Current redirectUris: {{ application_data.providers.oidc.properties.redirectUris | default([]) }}"
+          - "Application name: {{ app_name }}"
+          - "Has app-specific URIs: {{ app_has_specific_uris }}"
+          - "Final redirectUris: {{ final_redirect_uris | default('Not configured') }}"
+      when: enable_debug | default(false)
+
+    - name: "SSO Config | Set OIDC redirectUris in providers.oidc.properties"
+      ansible.builtin.set_fact:
+        updated_application_data: >-
+          {{
+            application_data | combine({
+              'providers': application_data.providers | combine({
+                'oidc': application_data.providers.oidc | combine({
+                  'properties': application_data.providers.oidc.properties | combine({
+                    'redirectUris': final_redirect_uris
+                  })
+                })
+              })
+            }, recursive=True)
+          }}
+      when: final_redirect_uris is defined
+
+    - name: "SSO Config | Debug - Updated OIDC configuration"
+      ansible.builtin.debug:
+        msg:
+          - "✓ OIDC redirectUris updated in providers.oidc.properties"
+          - "New redirectUris: {{ updated_application_data.providers.oidc.properties.redirectUris }}"
+      when:
+        - enable_debug | default(false)
+        - final_redirect_uris is defined
+
+    - name: "SSO Config | Warning - No redirect URIs configured"
+      ansible.builtin.debug:
+        msg:
+          - "⚠ WARNING: No redirect URIs configured for application '{{ app_name }}'"
+          - "Please add configuration in oidc_redirect_uris_per_app"
+      when:
+        - not (app_has_specific_uris | bool)
+        - enable_debug | default(false)
+
+  when:
+    - has_sso_config | bool
+    - sso_user_options == 'oidc'
+    - oidc_redirect_uris_per_app is defined
+  tags:
+    - sso
+    - config
+    - oidc
+
+# SAML Configuration Update
+- name: "SSO Config | Update SAML assertionConsumerServiceUrl"
+  block:
+    - name: "SSO Config | Debug - Current SAML configuration"
+      ansible.builtin.debug:
+        msg:
+          - "Current ACS URL: {{ application_data.providers.saml.properties.assertionConsumerServiceUrl | default('N/A') }}"
+          - "New ACS URL: {{ saml_assertion_consumer_service_url }}"
+      when: enable_debug | default(false)
+
+    - name: "SSO Config | Set SAML assertionConsumerServiceUrl from variable"
+      ansible.builtin.set_fact:
+        updated_application_data: >-
+          {{
+            application_data | combine({
+              'providers': application_data.providers | combine({
+                'saml': application_data.providers.saml | default({}) | combine({
+                  'properties': application_data.providers.saml.properties | default({}) | combine({
+                    'assertionConsumerServiceUrl': saml_assertion_consumer_service_url
+                  })
+                })
+              })
+            }, recursive=True)
+          }}
+
+    - name: "SSO Config | Update SAML entity ID (if configured)"
+      ansible.builtin.set_fact:
+        updated_application_data: >-
+          {{
+            updated_application_data | combine({
+              'providers': updated_application_data.providers | combine({
+                'saml': updated_application_data.providers.saml | combine({
+                  'properties': updated_application_data.providers.saml.properties | combine({
+                    'entityId': saml_entity_id
+                  })
+                })
+              })
+            }, recursive=True)
+          }}
+      when:
+        - saml_entity_id is defined
+        - saml_entity_id | length > 0
+
+    - name: "SSO Config | Update SAML single logout URL (if configured)"
+      ansible.builtin.set_fact:
+        updated_application_data: >-
+          {{
+            updated_application_data | combine({
+              'providers': updated_application_data.providers | combine({
+                'saml': updated_application_data.providers.saml | combine({
+                  'properties': updated_application_data.providers.saml.properties | combine({
+                    'singleLogoutServiceUrl': saml_single_logout_url
+                  })
+                })
+              })
+            }, recursive=True)
+          }}
+      when:
+        - saml_single_logout_url is defined
+        - saml_single_logout_url | length > 0
+
+    - name: "SSO Config | Debug - Updated SAML configuration"
+      ansible.builtin.debug:
+        msg:
+          - "✓ SAML configuration updated"
+          - "ACS URL: {{ updated_application_data.providers.saml.properties.assertionConsumerServiceUrl }}"
+          - "Entity ID: {{ updated_application_data.providers.saml.properties.entityId | default('N/A') }}"
+          - "SLO URL: {{ updated_application_data.providers.saml.properties.singleLogoutServiceUrl | default('N/A') }}"
+      when: enable_debug | default(false)
+
+  when:
+    - has_sso_config | bool
+    - sso_user_options == 'saml'
+    - saml_assertion_consumer_service_url is defined
+    - saml_assertion_consumer_service_url | length > 0
+  tags:
+    - sso
+    - config
+    - saml
+
+# Set updated data or keep original if no SSO config
+- name: "SSO Config | Finalize application data"
+  ansible.builtin.set_fact:
+    updated_application_data: "{{ updated_application_data | default(application_data) }}"
+  tags:
+    - sso
+    - config
+
+- name: "SSO Config | Summary"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "SSO Configuration Update Complete"
+      - "Application: {{ updated_application_data.name }}"
+      - "SSO Type: {{ sso_user_options | default('not configured') }}"
+      - "Configuration Updated: {{ has_sso_config | bool }}"
+      - "=========================================="
+  when: enable_debug | default(false)
+  tags:
+    - sso
+    - config
+    - summary
+
+# Made with Bob
