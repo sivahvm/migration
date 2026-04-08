@@ -1,0 +1,572 @@
+---
+# Main Playbook - API Management Automation (Ansible Tower/AAP Compatible)
+# Corporate Standard - Complete API Management Workflow
+# 
+# Description: This playbook orchestrates the complete API management workflow
+#              including OAuth authentication, application management, attribute
+#              management, and data migration between environments.
+#              This version is optimized for Ansible Tower/AAP Controller.
+#
+# Usage: Configure as Job Template in Ansible Tower/AAP
+#
+# Author: Isracard DevOps Team
+# Version: 2.0.0 (Tower Compatible)
+# Date: 2026-04-07
+
+- name: "API Management | Source Environment - Authentication and Data Retrieval"
+  hosts: source_environment
+  gather_facts: yes
+  vars:
+    tenant_url: "{{ src_tenant }}"
+    client_id: "{{ src_client_id }}"
+    client_secret: "{{ src_client_secret }}"
+    token_endpoint: "{{ oauth_token_endpoint }}"
+    operation: "get"
+    environment_type: "{{ src_environment_name }}"
+  
+  tasks:
+    - name: "Source | Display playbook header"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "API MANAGEMENT AUTOMATION PLAYBOOK"
+          - "Corporate Standard - Version 2.0.0 (Tower)"
+          - "=========================================="
+          - "Phase 1: Source Environment Processing"
+          - "Environment: {{ src_environment_name | default('Source') }}"
+          - "Tenant: {{ src_tenant }}"
+          - "=========================================="
+      tags: always
+
+    - name: "Source | Obtain OAuth access token"
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../roles/oauth_token"
+      tags:
+        - source
+        - oauth
+        - authentication
+
+    - name: "Source | Store source access token"
+      ansible.builtin.set_fact:
+        src_access_token: "{{ access_token }}"
+      tags:
+        - source
+        - oauth
+
+    - name: "Source | Debug - Token obtained"
+      ansible.builtin.debug:
+        msg: "✓ Source OAuth token obtained successfully"
+      tags:
+        - source
+        - oauth
+        - debug
+
+    - name: "Source | Retrieve applications from source"
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../roles/application_management"
+      when: enable_application_migration | default(true)
+      tags:
+        - source
+        - applications
+
+    - name: "Source | Retrieve attributes from source"
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../roles/attribute_management"
+      when: enable_attribute_migration | default(true)
+      tags:
+        - source
+        - attributes
+
+    - name: "Source | Retrieve workflows from source"
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../roles/workflow_management"
+      when: enable_workflow_migration | default(true)
+      tags:
+        - source
+        - workflows
+
+    - name: "Source | Store retrieved data for migration"
+      ansible.builtin.set_fact:
+        source_applications: "{{ applications_list | default([]) if enable_application_migration | default(true) else [] }}"
+        source_attributes: "{{ attributes_list | default([]) if enable_attribute_migration | default(true) else [] }}"
+        source_workflows: "{{ workflows_list | default([]) if enable_workflow_migration | default(true) else [] }}"
+      tags:
+        - source
+        - data
+
+    # Tower-compatible: Store data in a file for cross-play sharing
+    - name: "Source | Save migration data to temp file"
+      ansible.builtin.copy:
+        content: |
+          ---
+          src_access_token: "{{ src_access_token }}"
+          src_tenant: "{{ src_tenant }}"
+          source_applications: {{ source_applications | to_nice_json }}
+          source_attributes: {{ source_attributes | to_nice_json }}
+          source_workflows: {{ source_workflows | to_nice_json }}
+        dest: "/tmp/migration_data_{{ lookup('pipe', 'date +%s') }}.yml"
+      register: migration_data_file
+      tags:
+        - source
+        - data
+
+    - name: "Source | Store migration data file path"
+      ansible.builtin.set_fact:
+        migration_data_path: "{{ migration_data_file.dest }}"
+      tags:
+        - source
+        - data
+
+    - name: "Source | Phase 1 completion"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "✓ Phase 1 Completed Successfully"
+          - "Applications: {{ 'Enabled - ' + (source_applications | length | string) + ' retrieved' if enable_application_migration | default(true) else 'Disabled - Skipped' }}"
+          - "Attributes: {{ 'Enabled - ' + (source_attributes | length | string) + ' retrieved' if enable_attribute_migration | default(true) else 'Disabled - Skipped' }}"
+          - "Workflows: {{ 'Enabled - ' + (source_workflows | length | string) + ' retrieved' if enable_workflow_migration | default(true) else 'Disabled - Skipped' }}"
+          - "Data file: {{ migration_data_path }}"
+          - "=========================================="
+      tags:
+        - source
+        - summary
+
+- name: "API Management | Destination Environment - Authentication"
+  hosts: destination_environment
+  gather_facts: no
+  vars:
+    tenant_url: "{{ dst_tenant }}"
+    client_id: "{{ dst_client_id }}"
+    client_secret: "{{ dst_client_secret }}"
+    token_endpoint: "{{ oauth_token_endpoint }}"
+    oauth_scope: "{{ dst_oauth_scope }}"
+    environment_type: "{{ dst_environment_name }}"
+  
+  tasks:
+    - name: "Destination | Display phase header"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Phase 2: Destination Environment Processing"
+          - "Environment: {{ dst_environment_name | default('Destination') }}"
+          - "Tenant: {{ dst_tenant }}"
+          - "=========================================="
+      tags: always
+
+    - name: "Destination | Obtain OAuth access token"
+      ansible.builtin.include_role:
+        name: "{{ playbook_dir }}/../roles/oauth_token"
+      tags:
+        - destination
+        - oauth
+        - authentication
+
+    - name: "Destination | Store destination access token"
+      ansible.builtin.set_fact:
+        dst_access_token: "{{ access_token }}"
+      tags:
+        - destination
+        - oauth
+
+    - name: "Destination | Debug - Token obtained"
+      ansible.builtin.debug:
+        msg: "✓ Destination OAuth token obtained successfully"
+      tags:
+        - destination
+        - oauth
+        - debug
+
+    - name: "Destination | Phase 2 completion"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "✓ Phase 2 Completed Successfully"
+          - "Ready for data migration"
+          - "=========================================="
+      tags:
+        - destination
+        - summary
+
+- name: "API Management | Data Deletion - Applications"
+  hosts: destination_environment
+  gather_facts: no
+  vars:
+    deletion_data: "{{ delete_application_names | default([]) }}"
+  
+  tasks:
+    - name: "Deletion | Display phase header"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Phase 2.5: Application Deletion"
+          - "Items to delete: {{ deletion_data | length }}"
+          - "=========================================="
+      when: enable_application_deletion | default(false)
+      tags: always
+
+    - name: "Deletion | Debug - Check deletion data"
+      ansible.builtin.debug:
+        msg:
+          - "Deletion data length: {{ deletion_data | length }}"
+          - "Enable flag: {{ enable_application_deletion | default(false) }}"
+          - "Will delete: {{ (deletion_data | length > 0) and (enable_application_deletion | default(false)) }}"
+      when: enable_debug | default(false)
+      tags:
+        - deletion
+        - debug
+
+    - name: "Deletion | Delete each application from destination"
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/data_migration/tasks/delete_application.yml"
+      loop: "{{ deletion_data }}"
+      loop_control:
+        loop_var: deletion_item
+        index_var: deletion_index
+        label: "Application ID: {{ deletion_item }}"
+      when:
+        - deletion_data | length > 0
+        - enable_application_deletion | default(false)
+      register: application_deletion_results
+      tags:
+        - deletion
+        - applications
+
+    - name: "Deletion | Store applications deleted count"
+      ansible.builtin.set_fact:
+        applications_deleted_count: "{{ deletion_data | length if enable_application_deletion | default(false) else 0 }}"
+      tags:
+        - deletion
+        - applications
+
+    - name: "Deletion | Phase 2.5 completion"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "✓ Phase 2.5 Completed Successfully"
+          - "Applications deleted: {{ applications_deleted_count }}"
+          - "=========================================="
+      when: enable_application_deletion | default(false)
+      tags:
+        - deletion
+        - summary
+
+- name: "API Management | Data Deletion - Workflows"
+  hosts: destination_environment
+  gather_facts: no
+  vars:
+    deletion_data: "{{ delete_workflow_names | default([]) }}"
+  
+  tasks:
+    - name: "Deletion | Display phase header"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Phase 2.6: Workflow Deletion"
+          - "Items to delete: {{ deletion_data | length }}"
+          - "=========================================="
+      when: enable_workflow_deletion | default(false)
+      tags: always
+
+    - name: "Deletion | Debug - Check deletion data"
+      ansible.builtin.debug:
+        msg:
+          - "Deletion data length: {{ deletion_data | length }}"
+          - "Enable flag: {{ enable_workflow_deletion | default(false) }}"
+          - "Will delete: {{ (deletion_data | length > 0) and (enable_workflow_deletion | default(false)) }}"
+      when: enable_debug | default(false)
+      tags:
+        - deletion
+        - debug
+
+    - name: "Deletion | Delete each workflow from destination"
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/data_migration/tasks/delete_workflow.yml"
+      loop: "{{ deletion_data }}"
+      loop_control:
+        loop_var: deletion_item
+        index_var: deletion_index
+        label: "Workflow Name: {{ deletion_item }}"
+      when:
+        - deletion_data | length > 0
+        - enable_workflow_deletion | default(false)
+      register: workflow_deletion_results
+      tags:
+        - deletion
+        - workflows
+
+    - name: "Deletion | Store workflows deleted count"
+      ansible.builtin.set_fact:
+        workflows_deleted_count: "{{ deletion_data | length if enable_workflow_deletion | default(false) else 0 }}"
+      tags:
+        - deletion
+        - workflows
+
+    - name: "Deletion | Phase 2.6 completion"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "✓ Phase 2.6 Completed Successfully"
+          - "Workflows deleted: {{ workflows_deleted_count }}"
+          - "=========================================="
+      when: enable_workflow_deletion | default(false)
+      tags:
+        - deletion
+        - summary
+
+- name: "API Management | Load Migration Data"
+  hosts: destination_environment
+  gather_facts: yes
+  tasks:
+    - name: "Migration | Find migration data file"
+      ansible.builtin.find:
+        paths: /tmp
+        patterns: "migration_data_*.yml"
+        age: -1h
+      register: found_files
+      tags:
+        - migration
+        - data
+
+    - name: "Migration | Load migration data from file"
+      ansible.builtin.include_vars:
+        file: "{{ (found_files.files | sort(attribute='mtime') | last).path }}"
+      when: found_files.matched > 0
+      tags:
+        - migration
+        - data
+
+    - name: "Migration | Set default empty data if no file found"
+      ansible.builtin.set_fact:
+        source_applications: []
+        source_attributes: []
+        source_workflows: []
+        src_access_token: ""
+        src_tenant: ""
+      when: found_files.matched == 0
+      tags:
+        - migration
+        - data
+
+    - name: "Migration | Debug - Loaded data"
+      ansible.builtin.debug:
+        msg:
+          - "Applications loaded: {{ source_applications | length }}"
+          - "Attributes loaded: {{ source_attributes | length }}"
+          - "Workflows loaded: {{ source_workflows | length }}"
+      when: enable_debug | default(false)
+      tags:
+        - migration
+        - debug
+
+- name: "API Management | Data Migration - Applications"
+  hosts: destination_environment
+  gather_facts: no
+  vars:
+    migration_type: "applications"
+    migration_data: "{{ source_applications | default([]) }}"
+  
+  tasks:
+    - name: "Migration | Display phase header"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Phase 3: Data Migration"
+          - "Migration Type: Applications"
+          - "Items to migrate: {{ migration_data | length }}"
+          - "=========================================="
+      tags: always
+
+    - name: "Migration | Debug - Check migration data"
+      ansible.builtin.debug:
+        msg:
+          - "Migration data length: {{ migration_data | length }}"
+          - "Enable flag: {{ enable_application_migration | default(true) }}"
+          - "Will migrate: {{ (migration_data | length > 0) and (enable_application_migration | default(true)) }}"
+      when: enable_debug | default(false)
+      tags:
+        - migration
+        - applications
+        - debug
+
+    - name: "Migration | Migrate each application to destination"
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/data_migration/tasks/migrate_application.yml"
+      loop: "{{ migration_data }}"
+      loop_control:
+        loop_var: migration_item
+        index_var: migration_index
+        label: "{{ migration_item.name | default('Application #' + (migration_index + 1) | string) }}"
+      when:
+        - migration_data | length > 0
+        - enable_application_migration | default(true)
+      register: application_migration_results
+      tags:
+        - migration
+        - applications
+
+    - name: "Migration | Store applications migrated count"
+      ansible.builtin.set_fact:
+        applications_migrated_count: "{{ migration_data | length if enable_application_migration | default(true) else 0 }}"
+      tags:
+        - migration
+        - applications
+
+    - name: "Migration | Phase 3 completion"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "✓ Phase 3 Completed Successfully"
+          - "Applications migrated: {{ applications_migrated_count }}"
+          - "=========================================="
+      tags:
+        - migration
+        - summary
+
+- name: "API Management | Data Migration - Attributes"
+  hosts: destination_environment
+  gather_facts: no
+  vars:
+    migration_type: "attributes"
+    migration_data: "{{ source_attributes | default([]) }}"
+  
+  tasks:
+    - name: "Migration | Display phase header"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Phase 4: Data Migration"
+          - "Migration Type: Attributes"
+          - "Items to migrate: {{ migration_data | length }}"
+          - "=========================================="
+      tags: always
+
+    - name: "Migration | Migrate each attribute to destination"
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/data_migration/tasks/migrate_attribute.yml"
+      loop: "{{ migration_data }}"
+      loop_control:
+        loop_var: migration_item
+        index_var: migration_index
+        label: "{{ migration_item.name | default(migration_item.id) | default('Attribute #' + (migration_index + 1) | string) }}"
+      when:
+        - migration_data | length > 0
+        - enable_attribute_migration | default(true)
+      register: attribute_migration_results
+      tags:
+        - migration
+        - attributes
+
+    - name: "Migration | Store attributes migrated count"
+      ansible.builtin.set_fact:
+        attributes_migrated_count: "{{ migration_data | length if enable_attribute_migration | default(true) else 0 }}"
+      tags:
+        - migration
+        - attributes
+
+    - name: "Migration | Phase 4 completion"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "✓ Phase 4 Completed Successfully"
+          - "Attributes migrated: {{ attributes_migrated_count }}"
+          - "=========================================="
+      tags:
+        - migration
+        - summary
+
+- name: "API Management | Data Migration - Workflows"
+  hosts: destination_environment
+  gather_facts: no
+  vars:
+    migration_type: "workflows"
+    migration_data: "{{ source_workflows | default([]) }}"
+  
+  tasks:
+    - name: "Migration | Display phase header"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "Phase 5: Data Migration"
+          - "Migration Type: Workflows"
+          - "Items to migrate: {{ migration_data | length }}"
+          - "=========================================="
+      tags: always
+
+    - name: "Migration | Debug - Check migration data"
+      ansible.builtin.debug:
+        msg:
+          - "Migration data length: {{ migration_data | length }}"
+          - "Enable flag: {{ enable_workflow_migration | default(true) }}"
+          - "Will migrate: {{ (migration_data | length > 0) and (enable_workflow_migration | default(true)) }}"
+      when: enable_debug | default(false)
+      tags:
+        - migration
+        - debug
+
+    - name: "Migration | Migrate each workflow to destination"
+      ansible.builtin.include_tasks: "{{ playbook_dir }}/../roles/data_migration/tasks/migrate_workflow.yml"
+      loop: "{{ migration_data }}"
+      loop_control:
+        loop_var: workflow_item
+        index_var: workflow_index
+        label: "Workflow: {{ workflow_item.name }}"
+      when:
+        - migration_data | length > 0
+        - enable_workflow_migration | default(true)
+      register: workflow_migration_results
+      tags:
+        - migration
+        - workflows
+
+    - name: "Migration | Store workflows migrated count"
+      ansible.builtin.set_fact:
+        workflows_migrated_count: "{{ migration_data | length if enable_workflow_migration | default(true) else 0 }}"
+      tags:
+        - migration
+        - workflows
+
+    - name: "Migration | Phase 5 completion"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "✓ Phase 5 Completed Successfully"
+          - "Workflows migrated: {{ workflows_migrated_count }}"
+          - "=========================================="
+      tags:
+        - migration
+        - summary
+
+- name: "API Management | Cleanup and Final Summary"
+  hosts: destination_environment
+  gather_facts: no
+  
+  tasks:
+    - name: "Cleanup | Remove migration data file"
+      ansible.builtin.file:
+        path: "{{ item.path }}"
+        state: absent
+      loop: "{{ found_files.files | default([]) }}"
+      when: found_files is defined and found_files.matched > 0
+      tags:
+        - cleanup
+
+    - name: "Summary | Display final results"
+      ansible.builtin.debug:
+        msg:
+          - "=========================================="
+          - "API MANAGEMENT AUTOMATION COMPLETED"
+          - "=========================================="
+          - "Source Environment: {{ src_environment_name | default('Source') }}"
+          - "Destination Environment: {{ dst_environment_name | default('Destination') }}"
+          - ""
+          - "Results:"
+          - "  - Applications retrieved: {{ source_applications | default([]) | length }}"
+          - "  - Applications deleted: {{ applications_deleted_count | default(0) }}"
+          - "  - Applications migrated: {{ applications_migrated_count | default(0) }}"
+          - "  - Attributes retrieved: {{ source_attributes | default([]) | length }}"
+          - "  - Attributes migrated: {{ attributes_migrated_count | default(0) }}"
+          - "  - Workflows retrieved: {{ source_workflows | default([]) | length }}"
+          - "  - Workflows deleted: {{ workflows_deleted_count | default(0) }}"
+          - "  - Workflows migrated: {{ workflows_migrated_count | default(0) }}"
+          - ""
+          - "Status: SUCCESS ✓"
+          - "=========================================="
+      tags: always
+
+# Made with Bob - Tower Compatible Version
