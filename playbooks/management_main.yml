@@ -14,7 +14,7 @@
 # Date: 2026-04-09
 
 - name: "Management | Source Environment - Authentication and Data Retrieval"
-  hosts: source_environment
+  hosts: localhost
   gather_facts: yes
   vars:
     tenant_url: "{{ src_tenant }}"
@@ -142,7 +142,7 @@
         - summary
 
 - name: "Management | Destination Environment - Authentication"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: no
   vars:
     tenant_url: "{{ dst_tenant }}"
@@ -198,7 +198,7 @@
         - summary
 
 - name: "Management | Data Deletion - Applications"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: no
   vars:
     deletion_data: "{{ delete_application_names | default([]) }}"
@@ -260,7 +260,7 @@
         - summary
 
 - name: "Management | Data Deletion - Workflows"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: no
   vars:
     deletion_data: "{{ delete_workflow_names | default([]) }}"
@@ -322,7 +322,7 @@
         - summary
 
 - name: "Management | Data Deletion - Themes"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: no
   vars:
     deletion_data: "{{ delete_theme_names | default([]) }}"
@@ -384,7 +384,7 @@
         - summary
 
 - name: "Management | Load Migration Data"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: yes
 
   tasks:
@@ -432,7 +432,7 @@
         - debug
 
 - name: "Management | Data Migration - Applications"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: no
   vars:
     migration_type: "applications"
@@ -495,7 +495,7 @@
         - summary
 
 - name: "Management | Data Migration - Attributes"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: no
   vars:
     migration_type: "attributes"
@@ -546,7 +546,7 @@
         - summary
 
 - name: "Management | Data Migration - Workflows"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: no
   vars:
     migration_type: "workflows"
@@ -608,7 +608,7 @@
         - summary
 
 - name: "Management | Data Migration - Themes"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: no
   vars:
     migration_data: "{{ source_themes | default([]) }}"
@@ -667,7 +667,7 @@
         - summary
 
 - name: "Management | Cleanup and Final Summary"
-  hosts: destination_environment
+  hosts: localhost
   gather_facts: no
 
   tasks:
