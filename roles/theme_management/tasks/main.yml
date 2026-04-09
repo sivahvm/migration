@@ -65,8 +65,7 @@
 - name: "Theme Management | Set themes list fact"
   ansible.builtin.set_fact:
     themes_list: "{{ themes_response.json.themeRegistrations }}"
-    processed_themes_list: []
-  when:
+  when: 
     - themes_response.json is defined
     - themes_response.json.themeRegistrations is defined
   tags:
@@ -125,17 +124,6 @@
   tags:
     - theme
     - process
-
-- name: "Theme Management | Use processed themes for migration output"
-  ansible.builtin.set_fact:
-    themes_list: "{{ processed_themes_list }}"
-  when:
-    - operation | default('list') in ['get', 'migrate']
-    - processed_themes_list is defined
-  tags:
-    - theme
-    - process
-    - migrate
 
 - name: "Theme Management | Summary"
   ansible.builtin.debug:
