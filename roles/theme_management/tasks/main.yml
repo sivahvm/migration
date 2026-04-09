@@ -1,0 +1,141 @@
+---
+# Theme Management Role - Main Tasks
+# Corporate Standard - Theme CRUD Operations with Looping
+
+- name: "Theme Management | Display operation information"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Theme Management Operations"
+      - "Environment: {{ environment_type | default('unknown') }}"
+      - "Operation: {{ operation | default('list') }}"
+      - "=========================================="
+  tags:
+    - theme
+    - management
+
+- name: "Theme Management | Get list of themes"
+  ansible.builtin.uri:
+    url: "{{ tenant_url }}/v1.0/branding/themes"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ access_token }}"
+      Content-Type: "application/json"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: themes_response
+  retries: "{{ retry_count }}"
+  delay: "{{ retry_delay }}"
+  until: themes_response.status == 200
+  when: operation | default('list') in ['list', 'get', 'migrate']
+  tags:
+    - theme
+    - list
+
+- name: "Theme Management | Debug - Themes list"
+  ansible.builtin.debug:
+    msg:
+      - "Total themes found: {{ themes_response.json.themeRegistrations | length }}"
+      - "Themes retrieved successfully"
+  when: 
+    - enable_debug | default(false)
+    - themes_response.json is defined
+    - themes_response.json.themeRegistrations is defined
+  tags:
+    - theme
+    - list
+    - debug
+
+- name: "Theme Management | Debug - Theme details"
+  ansible.builtin.debug:
+    msg: "  - Theme ID: {{ item.id }} | Name: {{ item.name | default('N/A') }}"
+  loop: "{{ themes_response.json.themeRegistrations }}"
+  loop_control:
+    label: "{{ item.id }}"
+  when: 
+    - enable_debug | default(false)
+    - themes_response.json is defined
+    - themes_response.json.themeRegistrations is defined
+  tags:
+    - theme
+    - list
+    - debug
+
+- name: "Theme Management | Set themes list fact"
+  ansible.builtin.set_fact:
+    themes_list: "{{ themes_response.json.themeRegistrations }}"
+  when: 
+    - themes_response.json is defined
+    - themes_response.json.themeRegistrations is defined
+  tags:
+    - theme
+    - list
+
+- name: "Theme Management | Filter themes by ID list"
+  ansible.builtin.set_fact:
+    themes_list: "{{ themes_list | selectattr('id', 'in', filter_theme_ids) | list }}"
+  when:
+    - themes_list is defined
+    - filter_theme_ids is defined
+    - filter_theme_ids | length > 0
+  tags:
+    - theme
+    - list
+    - filter
+
+- name: "Theme Management | Filter themes by name list"
+  ansible.builtin.set_fact:
+    themes_list: "{{ themes_list | selectattr('name', 'in', filter_theme_names) | list }}"
+  when:
+    - themes_list is defined
+    - filter_theme_names is defined
+    - filter_theme_names | length > 0
+  tags:
+    - theme
+    - list
+    - filter
+
+- name: "Theme Management | Debug - Filtered themes"
+  ansible.builtin.debug:
+    msg:
+      - "Filter applied: {{ filter_theme_ids | default([]) | length }} theme IDs, {{ filter_theme_names | default([]) | length }} theme names specified"
+      - "Themes after filtering: {{ themes_list | length }}"
+  when:
+    - enable_debug | default(false)
+    - ((filter_theme_ids is defined and filter_theme_ids | length > 0) or (filter_theme_names is defined and filter_theme_names | length > 0))
+  tags:
+    - theme
+    - list
+    - filter
+    - debug
+
+- name: "Theme Management | Process each theme"
+  ansible.builtin.include_tasks: process_theme.yml
+  loop: "{{ themes_list }}"
+  loop_control:
+    loop_var: current_theme
+    index_var: theme_index
+    label: "{{ current_theme.id }}"
+  when: 
+    - themes_list is defined
+    - themes_list | length > 0
+    - operation | default('list') in ['get', 'migrate']
+  tags:
+    - theme
+    - process
+
+- name: "Theme Management | Summary"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Theme Management Summary"
+      - "Total themes processed: {{ themes_list | length }}"
+      - "Operation completed successfully"
+      - "=========================================="
+  when: themes_list is defined
+  tags:
+    - theme
+    - summary
+
+# Made with Bob

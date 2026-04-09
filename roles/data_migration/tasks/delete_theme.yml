@@ -1,0 +1,188 @@
+---
+# Theme Deletion Task
+# Deletes a single theme from destination by name
+
+- name: "Delete Theme | Debug - Current theme info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Deleting Theme #{{ deletion_index + 1 }}"
+      - "Name: {{ deletion_item }}"
+      - "=========================================="
+  when: enable_debug | default(false)
+  tags:
+    - deletion
+    - theme
+    - debug
+
+- name: "Delete Theme | Debug - Request details"
+  ansible.builtin.debug:
+    msg:
+      - "Request URL: {{ dst_tenant }}/v1.0/branding/themes"
+      - "Method: GET (to find theme by name)"
+      - "Filter: name eq '{{ deletion_item }}'"
+      - "Headers:"
+      - "  - Authorization: Bearer {{ dst_access_token[:20] }}..."
+      - "  - Accept: application/json"
+  when: enable_debug | default(false)
+  tags:
+    - deletion
+    - theme
+    - debug
+
+- name: "Delete Theme | GET themes from destination to find by name"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/v1.0/branding/themes"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Accept: "application/json"
+    status_code: [200]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: dst_themes_list_response
+  failed_when: false
+  tags:
+    - deletion
+    - theme
+
+- name: "Delete Theme | Debug - API response structure"
+  ansible.builtin.debug:
+    msg:
+      - "API Response Keys: {{ dst_themes_list_response.json.keys() | list }}"
+      - "Theme Count: {{ dst_themes_list_response.json.themeRegistrations | default([]) | length }}"
+  when: enable_debug | default(false)
+  tags:
+    - deletion
+    - theme
+    - debug
+
+- name: "Delete Theme | Find theme ID by name"
+  ansible.builtin.set_fact:
+    found_theme: "{{ dst_themes_list_response.json.themeRegistrations | default([]) | selectattr('name', 'equalto', deletion_item) | list | first | default(none) }}"
+  when: dst_themes_list_response.status == 200
+  tags:
+    - deletion
+    - theme
+
+- name: "Delete Theme | Debug - Theme search result"
+  ansible.builtin.debug:
+    msg:
+      - "Theme search result:"
+      - "Found: {{ found_theme is not none }}"
+      - "Theme ID: {{ found_theme.id | default('N/A') }}"
+      - "Theme Name: {{ found_theme.name | default('N/A') }}"
+  when: enable_debug | default(false)
+  tags:
+    - deletion
+    - theme
+    - debug
+
+- name: "Delete Theme | DELETE theme from destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/v1.0/branding/themes/{{ found_theme.id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Accept: "application/json"
+    status_code: [200, 204, 404, 500]
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: theme_deletion_response
+  failed_when: false
+  changed_when: theme_deletion_response.status in [200, 204]
+  when: found_theme is not none
+  tags:
+    - deletion
+    - theme
+
+- name: "Delete Theme | Skip deletion - Theme not found"
+  ansible.builtin.debug:
+    msg: "⚠ Theme '{{ deletion_item }}' not found in destination - skipping deletion"
+  when: found_theme is none
+  tags:
+    - deletion
+    - theme
+
+- name: "Delete Theme | Debug - Deletion response"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Theme deleted successfully"
+      - "Status: {{ theme_deletion_response.status }}"
+      - "Theme ID: {{ found_theme.id }}"
+      - "Theme Name: {{ deletion_item }}"
+      - "Response Body: {{ theme_deletion_response.json | default('No content') }}"
+  when:
+    - enable_debug | default(false)
+    - found_theme is not none
+    - theme_deletion_response.status in [200, 204]
+  tags:
+    - deletion
+    - theme
+    - debug
+
+- name: "Delete Theme | Debug - Theme not found during deletion"
+  ansible.builtin.debug:
+    msg:
+      - "⚠ Theme not found during deletion (already deleted)"
+      - "Status: {{ theme_deletion_response.status }}"
+      - "Theme Name: {{ deletion_item }}"
+  when:
+    - enable_debug | default(false)
+    - found_theme is not none
+    - theme_deletion_response.status == 404
+  tags:
+    - deletion
+    - theme
+    - debug
+
+- name: "Delete Theme | Debug - Server error"
+  ansible.builtin.debug:
+    msg:
+      - "⚠ Server error during deletion"
+      - "Status: {{ theme_deletion_response.status }}"
+      - "Theme ID: {{ found_theme.id }}"
+      - "Theme Name: {{ deletion_item }}"
+      - "Message: {{ theme_deletion_response.json.messageDescription | default('Internal Server Error') }}"
+      - "Message ID: {{ theme_deletion_response.json.messageId | default('N/A') }}"
+      - "Full Response: {{ theme_deletion_response.json | default({}) }}"
+  when:
+    - enable_debug | default(false)
+    - found_theme is not none
+    - theme_deletion_response.status == 500
+  tags:
+    - deletion
+    - theme
+    - debug
+
+- name: "Delete Theme | Success message"
+  ansible.builtin.debug:
+    msg: "✓ Theme '{{ deletion_item }}' (ID: {{ found_theme.id }}) deleted successfully"
+  when:
+    - found_theme is not none
+    - theme_deletion_response.status in [200, 204]
+  tags:
+    - deletion
+    - theme
+
+- name: "Delete Theme | Skip message - Not found during deletion"
+  ansible.builtin.debug:
+    msg: "⚠ Theme '{{ deletion_item }}' (ID: {{ found_theme.id }}) not found - already deleted"
+  when:
+    - found_theme is not none
+    - theme_deletion_response.status == 404
+  tags:
+    - deletion
+    - theme
+
+- name: "Delete Theme | Skip message - Server error"
+  ansible.builtin.debug:
+    msg: "⚠ Theme '{{ deletion_item }}' (ID: {{ found_theme.id }}) deletion failed - server error ({{ theme_deletion_response.json.messageDescription | default('Internal Server Error') }})"
+  when:
+    - found_theme is not none
+    - theme_deletion_response.status == 500
+  tags:
+    - deletion
+    - theme
+
+# Made with Bob

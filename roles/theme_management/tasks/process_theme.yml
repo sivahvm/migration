@@ -1,0 +1,117 @@
+---
+# Theme Management - Process Individual Theme
+# Corporate Standard - Theme Processing with Looping and Debug
+
+- name: "Process Theme | Debug - Current theme info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Processing Theme #{{ theme_index + 1 }}"
+      - "ID: {{ current_theme.id }}"
+      - "Name: {{ current_theme.name | default('N/A') }}"
+      - "=========================================="
+  tags:
+    - theme
+    - process
+    - debug
+
+- name: "Process Theme | Set current theme ID"
+  ansible.builtin.set_fact:
+    current_theme_id: "{{ current_theme.id }}"
+  tags:
+    - theme
+    - process
+
+- name: "Process Theme | Debug - Theme ID"
+  ansible.builtin.debug:
+    msg: "Current Theme ID: {{ current_theme_id }}"
+  when: enable_debug | default(false)
+  tags:
+    - theme
+    - process
+    - debug
+
+- name: "Process Theme | Get detailed theme information (ZIP file)"
+  ansible.builtin.uri:
+    url: "{{ tenant_url }}/v1.0/branding/themes/{{ current_theme_id }}?customized_only=false"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ access_token }}"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+    dest: "/tmp/theme_{{ current_theme_id }}.zip"
+    return_content: no
+  register: theme_details_response
+  retries: "{{ retry_count }}"
+  delay: "{{ retry_delay }}"
+  until: theme_details_response.status == 200
+  tags:
+    - theme
+    - process
+    - get
+
+- name: "Process Theme | Debug - Theme ZIP downloaded"
+  ansible.builtin.debug:
+    msg:
+      - "Theme ZIP Downloaded:"
+      - "  ID: {{ current_theme_id }}"
+      - "  Name: {{ current_theme.name | default('N/A') }}"
+      - "  File: /tmp/theme_{{ current_theme_id }}.zip"
+      - "  Status: {{ theme_details_response.status }}"
+  when:
+    - enable_debug | default(false)
+    - theme_details_response.status == 200
+  tags:
+    - theme
+    - process
+    - debug
+
+- name: "Process Theme | Store theme data for migration"
+  ansible.builtin.set_fact:
+    current_theme_data:
+      id: "{{ current_theme_id }}"
+      name: "{{ current_theme.name }}"
+      zip_file: "/tmp/theme_{{ current_theme_id }}.zip"
+  when:
+    - theme_details_response.status == 200
+    - operation | default('list') == 'migrate'
+  tags:
+    - theme
+    - process
+    - migrate
+
+- name: "Process Theme | Store theme data (non-migration)"
+  ansible.builtin.set_fact:
+    current_theme_data:
+      id: "{{ current_theme_id }}"
+      name: "{{ current_theme.name }}"
+      zip_file: "/tmp/theme_{{ current_theme_id }}.zip"
+  when:
+    - theme_details_response.status == 200
+    - operation | default('list') != 'migrate'
+  tags:
+    - theme
+    - process
+
+- name: "Process Theme | Debug - Processed theme data"
+  ansible.builtin.debug:
+    msg:
+      - "✓ Theme ZIP file processed successfully"
+      - "Ready for {{ operation | default('list') }} operation"
+  when:
+    - enable_debug | default(false)
+    - current_theme_data is defined
+  tags:
+    - theme
+    - process
+    - debug
+
+- name: "Process Theme | Completion message"
+  ansible.builtin.debug:
+    msg: "✓ Completed processing theme: {{ current_theme.id }}"
+  tags:
+    - theme
+    - process
+
+# Made with Bob

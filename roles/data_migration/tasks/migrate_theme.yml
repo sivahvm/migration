@@ -1,0 +1,314 @@
+---
+# Theme Migration Task
+# Migrates a single theme from source to destination
+
+- name: "Migrate Theme | Debug - Current theme info"
+  ansible.builtin.debug:
+    msg:
+      - "=========================================="
+      - "Migrating Theme #{{ migration_index + 1 }}"
+      - "ID: {{ migration_item.id | default('N/A') }}"
+      - "Name: {{ migration_item.name | default('N/A') }}"
+      - "=========================================="
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - theme
+    - debug
+
+- name: "Migrate Theme | Prepare theme data for migration"
+  ansible.builtin.set_fact:
+    theme_payload_raw: "{{ migration_item }}"
+    theme_zip_file: "{{ migration_item.zip_file | default('/tmp/theme_' + migration_item.id + '.zip') }}"
+    source_theme_id: "{{ migration_item.id }}"
+    theme_name: "{{ migration_item.name | default('Unknown') }}"
+    theme_filter_names: "{{ filter_theme_names | default([]) }}"
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Skip theme not present in name filter"
+  ansible.builtin.debug:
+    msg: "⚠ Theme '{{ theme_name }}' is not in filter_theme_names - skipped"
+  when:
+    - theme_filter_names | length > 0
+    - theme_name not in theme_filter_names
+  tags:
+    - migration
+    - theme
+    - filter
+
+- name: "Migrate Theme | Get existing themes from destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/v1.0/branding/themes"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Content-Type: "application/json"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: dst_themes_response
+  when:
+    - theme_filter_names | length == 0 or theme_name in theme_filter_names
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Check if theme already exists"
+  ansible.builtin.set_fact:
+    existing_theme_id: "{{ (dst_themes_response.json.themeRegistrations | selectattr('name', 'equalto', theme_name) | map(attribute='id') | list | first) | default('') }}"
+    theme_exists: "{{ dst_themes_response.json.themeRegistrations | selectattr('name', 'equalto', theme_name) | list | length > 0 }}"
+  when:
+    - dst_themes_response.json is defined
+    - dst_themes_response.json.themeRegistrations is defined
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Debug - Theme existence check"
+  ansible.builtin.debug:
+    msg:
+      - "Theme '{{ theme_name }}' exists in destination: {{ theme_exists | default(false) }}"
+      - "Existing destination ID: {{ existing_theme_id | default('N/A') }}"
+  when:
+    - enable_debug | default(false)
+    - theme_filter_names | length == 0 or theme_name in theme_filter_names
+  tags:
+    - migration
+    - theme
+    - debug
+
+- name: "Migrate Theme | Delete existing destination theme before recreate"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/v1.0/branding/themes/{{ existing_theme_id }}"
+    method: DELETE
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Content-Type: "application/json"
+    status_code:
+      - 200
+      - 204
+      - 404
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: delete_theme_response
+  when:
+    - theme_filter_names | length == 0 or theme_name in theme_filter_names
+    - theme_exists | default(false)
+    - existing_theme_id | default('') | length > 0
+  failed_when: false
+  tags:
+    - migration
+    - theme
+    - delete
+
+- name: "Migrate Theme | Debug - Delete existing destination theme"
+  ansible.builtin.debug:
+    msg:
+      - "Deleted existing destination theme before recreate"
+      - "Delete Status: {{ delete_theme_response.status | default('N/A') }}"
+      - "Theme Name: {{ theme_name }}"
+      - "Deleted Theme ID: {{ existing_theme_id | default('N/A') }}"
+  when:
+    - enable_debug | default(false)
+    - delete_theme_response is defined
+  tags:
+    - migration
+    - theme
+    - debug
+
+- name: "Migrate Theme | Check if ZIP file exists"
+  ansible.builtin.stat:
+    path: "{{ theme_zip_file }}"
+  register: zip_file_stat
+  when:
+    - theme_filter_names | length == 0 or theme_name in theme_filter_names
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Debug - Migration preparation"
+  ansible.builtin.debug:
+    msg:
+      - "Theme prepared for CRUD recreation"
+      - "Name: {{ theme_name }}"
+      - "Source ID: {{ source_theme_id }}"
+      - "Destination URL: {{ dst_tenant }}/v1.0/branding/themes"
+      - "ZIP File: {{ theme_zip_file }}"
+  when:
+    - enable_debug | default(false)
+    - theme_filter_names | length == 0 or theme_name in theme_filter_names
+  tags:
+    - migration
+    - theme
+    - debug
+
+- name: "Migrate Theme | Debug - ZIP file status"
+  ansible.builtin.debug:
+    msg:
+      - "ZIP file exists: {{ zip_file_stat.stat.exists }}"
+      - "ZIP file size: {{ zip_file_stat.stat.size | default(0) }} bytes"
+  when:
+    - enable_debug | default(false)
+    - zip_file_stat is defined
+  tags:
+    - migration
+    - theme
+    - debug
+
+- name: "Migrate Theme | Create theme using branding CRUD POST"
+  ansible.builtin.command:
+    cmd: >
+      curl --request POST
+      --url "{{ dst_tenant }}/v1.0/branding/themes"
+      --header "Authorization: Bearer {{ dst_access_token }}"
+      --header "Accept: application/json"
+      --form 'configuration={ "name": "{{ theme_name }}", "type": "theme"}'
+      --form "files=@{{ theme_zip_file }}"
+      --write-out "HTTPSTATUS:%{http_code}"
+      --silent
+      --show-error
+      --output /tmp/theme_upload_response_{{ source_theme_id }}.txt
+  register: theme_upload_curl
+  changed_when: false
+  failed_when: false
+  when:
+    - theme_filter_names | length == 0 or theme_name in theme_filter_names
+    - zip_file_stat.stat.exists | default(false)
+  tags:
+    - migration
+    - theme
+    - create
+
+- name: "Migrate Theme | Read raw upload response"
+  ansible.builtin.slurp:
+    src: "/tmp/theme_upload_response_{{ source_theme_id }}.txt"
+  register: theme_upload_response_file
+  when:
+    - theme_upload_curl is defined
+  ignore_errors: yes
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Normalize raw upload response"
+  ansible.builtin.set_fact:
+    theme_upload_response_raw: "{{ (theme_upload_response_file.content | default('') | b64decode | trim) if (theme_upload_response_file is defined and theme_upload_response_file.content is defined) else '' }}"
+  when:
+    - theme_upload_curl is defined
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Parse upload response"
+  ansible.builtin.set_fact:
+    theme_migration_response:
+      status: "{{ (theme_upload_curl.stdout | regex_search('HTTPSTATUS:(\\d+)') | default('0') | regex_replace('HTTPSTATUS:', '')) | int }}"
+      raw: "{{ theme_upload_response_raw | default('') }}"
+      json: {}
+      created_theme_id: ""
+  when:
+    - theme_upload_curl is defined
+    - theme_upload_curl.stdout is defined
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Parse upload response JSON when available"
+  ansible.builtin.set_fact:
+    theme_migration_response: "{{ theme_migration_response | combine({'json': (theme_upload_response_raw | from_json)}) }}"
+  when:
+    - theme_migration_response is defined
+    - theme_upload_response_raw is defined
+    - theme_upload_response_raw | length > 0
+    - theme_upload_response_raw is string
+    - (theme_upload_response_raw | regex_search('^\\s*[\\[{]')) is not none
+  ignore_errors: yes
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Set created theme ID from response"
+  ansible.builtin.set_fact:
+    theme_migration_response: >-
+      {{
+        theme_migration_response
+        | combine({
+            'created_theme_id': (
+              theme_migration_response.json.id
+              | default(
+                  theme_upload_curl.stdout
+                  | regex_search('https?://[^[:space:]]+/branding/themes/([0-9a-fA-F-]+)', '\1')
+                  | default('')
+                )
+            )
+          })
+      }}
+  when:
+    - theme_migration_response is defined
+  tags:
+    - migration
+    - theme
+
+
+
+- name: "Migrate Theme | Fail when CRUD create was rejected"
+  ansible.builtin.fail:
+    msg: >-
+      Theme recreation failed for '{{ theme_name }}'.
+      HTTP Status: {{ theme_migration_response.status | default('unknown') }}.
+      Response: {{ theme_migration_response.raw | default(theme_migration_response.json | default({})) }}
+  when:
+    - theme_filter_names | length == 0 or theme_name in theme_filter_names
+    - zip_file_stat.stat.exists | default(false)
+    - theme_migration_response is defined
+    - theme_migration_response.status is defined
+    - theme_migration_response.status | int not in [200, 201, 409]
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Verify recreated theme exists in destination"
+  ansible.builtin.uri:
+    url: "{{ dst_tenant }}/v1.0/branding/themes"
+    method: GET
+    headers:
+      Authorization: "Bearer {{ dst_access_token }}"
+      Content-Type: "application/json"
+    status_code: 200
+    timeout: "{{ http_timeout }}"
+    validate_certs: yes
+  register: dst_themes_verify_response
+  when:
+    - theme_migration_response is defined
+    - theme_migration_response.status is defined
+    - theme_migration_response.status | int in [200, 201, 409]
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Check verified recreated theme in destination"
+  ansible.builtin.set_fact:
+    theme_verified: "{{ dst_themes_verify_response.json.themeRegistrations | selectattr('name', 'equalto', theme_name) | list | length > 0 }}"
+  when:
+    - dst_themes_verify_response is defined
+    - dst_themes_verify_response.json is defined
+    - dst_themes_verify_response.json.themeRegistrations is defined
+  tags:
+    - migration
+    - theme
+
+- name: "Migrate Theme | Fail when recreated theme is not visible in destination"
+  ansible.builtin.fail:
+    msg: >-
+      Theme recreation returned success for '{{ theme_name }}', but verification failed.
+      Theme was not found in destination tenant {{ dst_tenant }} after CRUD recreate.
+  when:
+    - theme_migration_response is defined
+    - theme_migration_response.status is defined
+    - theme_migration_response.status | int in [200, 201, 409]
+    - not (theme_verified | default(false))
+  tags:
+    - migration
+    - theme

@@ -7,8 +7,8 @@
     msg:
       - "=========================================="
       - "Data Migration Operations"
-      - "Source: {{ src_tenant }}"
-      - "Destination: {{ dst_tenant }}"
+      - "Source: {{ src_tenant | default('N/A') }}"
+      - "Destination: {{ dst_tenant | default('N/A') }}"
       - "Migration Type: {{ migration_type | default('attributes') }}"
       - "=========================================="
   tags:
@@ -55,8 +55,8 @@
       - "=========================================="
       - "Data Migration Summary"
       - "Total items migrated: {{ migration_data | length }}"
-      - "Source: {{ src_tenant }}"
-      - "Destination: {{ dst_tenant }}"
+      - "Source: {{ src_tenant | default('N/A') }}"
+      - "Destination: {{ dst_tenant | default('N/A') }}"
       - "Migration completed successfully"
       - "=========================================="
   tags:

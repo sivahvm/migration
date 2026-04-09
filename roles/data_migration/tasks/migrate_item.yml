@@ -32,7 +32,14 @@
     - process
     - debug
 
-- name: "Migrate Item | POST item to destination"
+- name: "Migrate Item | Route to specific migration task"
+  ansible.builtin.include_tasks: "migrate_{{ migration_type }}.yml"
+  when: migration_type in ['attribute', 'workflow', 'application', 'theme']
+  tags:
+    - migration
+    - process
+
+- name: "Migrate Item | POST item to destination (generic)"
   ansible.builtin.uri:
     url: "{{ dst_tenant }}/v1.0/{{ migration_type | default('attributes') }}"
     method: POST
@@ -48,6 +55,7 @@
   retries: "{{ retry_count }}"
   delay: "{{ retry_delay }}"
   until: migration_response.status in [200, 201]
+  when: migration_type not in ['attribute', 'workflow', 'application', 'theme']
   tags:
     - migration
     - process
@@ -59,7 +67,10 @@
       - "Migration Response:"
       - "  Status Code: {{ migration_response.status }}"
       - "  Response: {{ migration_response.json | default('No response body') }}"
-  when: enable_debug | default(false)
+  when:
+    - enable_debug | default(false)
+    - migration_response is defined
+    - migration_response.status is defined
   tags:
     - migration
     - process
@@ -71,6 +82,9 @@
       - migration_response.status in [200, 201]
     success_msg: "✓ Item migrated successfully"
     fail_msg: "✗ Item migration failed"
+  when:
+    - migration_response is defined
+    - migration_response.status is defined
   tags:
     - migration
     - process
@@ -81,6 +95,9 @@
     msg:
       - "✓ Item #{{ migration_index + 1 }} migrated successfully"
       - "Status: {{ migration_response.status }}"
+  when:
+    - migration_response is defined
+    - migration_response.status is defined
   tags:
     - migration
     - process
