@@ -38,32 +38,79 @@
     - migration
     - attribute
 
-- name: "Migrate Attribute | Extract used customAttribute numbers"
-  ansible.builtin.set_fact:
-    used_custom_attrs: >-
-      {{
-        dst_attributes_response.json
-        | selectattr('schemaAttribute', 'defined')
-        | selectattr('schemaAttribute.name', 'defined')
-        | map(attribute='schemaAttribute.name')
-        | select('match', '^customAttribute[0-9]+$')
-        | map('regex_replace', '^customAttribute([0-9]+)$', '\\1')
-        | map('int')
-        | list
-      }}
+- name: "Migrate Attribute | Debug - All destination attributes with schemaAttribute"
+  ansible.builtin.debug:
+    msg: "{{ item.name | default('N/A') }} -> {{ item.schemaAttribute.name | default('N/A') }}"
+  loop: "{{ dst_attributes_response.json | selectattr('schemaAttribute', 'defined') | list }}"
+  loop_control:
+    label: "{{ item.name | default('N/A') }}"
+  when: enable_debug | default(false)
   tags:
     - migration
     - attribute
+    - debug
+
+- name: "Migrate Attribute | Extract used customAttribute numbers"
+  ansible.builtin.set_fact:
+    used_custom_attrs: []
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Build list of used customAttribute numbers"
+  ansible.builtin.set_fact:
+    used_custom_attrs: "{{ used_custom_attrs + [item.schemaAttribute.name | regex_replace('^customAttribute([0-9]+)$', '\\1') | int] }}"
+  loop: "{{ dst_attributes_response.json }}"
+  when:
+    - item.schemaAttribute is defined
+    - item.schemaAttribute.name is defined
+    - item.schemaAttribute.name is match('^customAttribute[0-9]+$')
+  loop_control:
+    label: "{{ item.name | default('N/A') }}"
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Sort used customAttribute numbers"
+  ansible.builtin.set_fact:
+    used_custom_attrs: "{{ used_custom_attrs | sort }}"
+  tags:
+    - migration
+    - attribute
+
+- name: "Migrate Attribute | Debug - Used customAttribute slots"
+  ansible.builtin.debug:
+    msg:
+      - "Used customAttribute slots: {{ used_custom_attrs }}"
+      - "Total slots used: {{ used_custom_attrs | length }}"
+  when: enable_debug | default(false)
+  tags:
+    - migration
+    - attribute
+    - debug
 
 - name: "Migrate Attribute | Find next available customAttribute number"
   ansible.builtin.set_fact:
     next_custom_attr_num: >-
       {{
-        range(1, 100) | difference(used_custom_attrs) | first
+        range(1, 101) | difference(used_custom_attrs) | list | first
       }}
+  when: attribute_payload_raw.schemaAttribute is defined
   tags:
     - migration
     - attribute
+
+- name: "Migrate Attribute | Debug - Next available slot"
+  ansible.builtin.debug:
+    msg:
+      - "Next available customAttribute slot: customAttribute{{ next_custom_attr_num }}"
+  when:
+    - enable_debug | default(false)
+    - attribute_payload_raw.schemaAttribute is defined
+  tags:
+    - migration
+    - attribute
+    - debug
 
 - name: "Migrate Attribute | Update schemaAttribute with available slot"
   ansible.builtin.set_fact:
