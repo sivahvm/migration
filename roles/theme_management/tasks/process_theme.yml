@@ -94,11 +94,23 @@
     - theme
     - process
 
+- name: "Process Theme | Add theme to processed themes list"
+  ansible.builtin.set_fact:
+    processed_themes_list: "{{ (processed_themes_list | default([])) + [current_theme_data] }}"
+  when:
+    - current_theme_data is defined
+    - theme_details_response.status == 200
+  tags:
+    - theme
+    - process
+    - migrate
+
 - name: "Process Theme | Debug - Processed theme data"
   ansible.builtin.debug:
     msg:
       - "✓ Theme ZIP file processed successfully"
       - "Ready for {{ operation | default('list') }} operation"
+      - "Processed themes accumulated: {{ processed_themes_list | default([]) | length }}"
   when:
     - enable_debug | default(false)
     - current_theme_data is defined
