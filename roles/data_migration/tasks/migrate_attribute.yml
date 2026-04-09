@@ -140,7 +140,7 @@
     - migration
     - attribute
 
-- name: "Migrate Attribute | Debug - Migration payload"
+- name: "Migrate Attribute | Debug - Migration payload (with schemaAttribute)"
   ansible.builtin.debug:
     msg:
       - "Attribute payload prepared for migration"
@@ -149,7 +149,25 @@
       - "Used customAttribute slots: {{ used_custom_attrs | sort }}"
       - "Assigned customAttribute: customAttribute{{ next_custom_attr_num }}"
       - "System fields removed: id, _links, created, lastmodified"
-  when: enable_debug | default(false)
+  when:
+    - enable_debug | default(false)
+    - attribute_payload_raw.schemaAttribute is defined
+  tags:
+    - migration
+    - attribute
+    - debug
+
+- name: "Migrate Attribute | Debug - Migration payload (no schemaAttribute)"
+  ansible.builtin.debug:
+    msg:
+      - "Attribute payload prepared for migration"
+      - "ID: {{ attribute_payload.id | default('N/A') }}"
+      - "Name: {{ attribute_payload.name | default('N/A') }}"
+      - "No schemaAttribute - standard attribute"
+      - "System fields removed: id, _links, created, lastmodified"
+  when:
+    - enable_debug | default(false)
+    - attribute_payload_raw.schemaAttribute is not defined
   tags:
     - migration
     - attribute
